@@ -1,0 +1,647 @@
+[
+  {
+    "url": "https://github.com/python/cpython",
+    "title": "Python官方源码仓库",
+    "tags": [
+      "编程",
+      "开源",
+      "github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://www.python.org/doc/",
+    "title": "Python官方文档",
+    "tags": [
+      "编程",
+      "文档",
+      "python"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://news.ycombinator.com",
+    "title": "Hacker News技术新闻",
+    "tags": [
+      "news.ycombinator"
+    ],
+    "category": "新闻"
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "title": "搞笑视频合集",
+    "tags": [
+      "youtube"
+    ],
+    "category": "娱乐"
+  },
+  {
+    "url": "https://aizex.net/",
+    "title": "Aizex 合租面板",
+    "tags": [
+      "aizex"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://ai-bot.cn/",
+    "title": "AI工具集官网 | 1000+ AI工具集合，国内外AI工具集导航大全",
+    "tags": [
+      "ai-bot"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://aizex.net/usersDocument",
+    "title": "Aizex 合租面板",
+    "tags": [
+      "文档",
+      "aizex"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://transform.tools/json-to-typescript",
+    "title": "JSON to TypeScript",
+    "tags": [
+      "transform.tools"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://xuc.xi-xu.me/",
+    "title": "Xget ｜ 加速",
+    "tags": [
+      "xuc.xi-xu.me"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.modelscope.cn/my/myaccesstoken",
+    "title": "访问令牌 · 魔搭社区",
+    "tags": [
+      "modelscope"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://lucide.dev/icons/",
+    "title": "Lucide｜【svg】",
+    "tags": [
+      "lucide.dev"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://xicons.org/#/zh-CN",
+    "title": "xicons｜【svg 集合】",
+    "tags": [
+      "xicons"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.iconfont.cn/",
+    "title": "iconfont｜【平台】",
+    "tags": [
+      "iconfont"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://yesicon.app/",
+    "title": "Yesicon - 【图标】【使用方案】",
+    "tags": [
+      "yesicon.app"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://blush.design/zh-CN",
+    "title": "Blush：【插图工具】",
+    "tags": [
+      "blush.design"
+    ],
+    "category": null
+  },
+  {
+    "url": "http://www.sooui.com/",
+    "title": "sooui｜【素材】",
+    "tags": [
+      "sooui"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://uiset-website-zh.pages.dev/",
+    "title": "可商用的 UI 资源库 - UI集",
+    "tags": [
+      "uiset-website-zh.pages.dev"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://js.design/",
+    "title": "即时设计 - 可实时协作的专业 UI 设计工具",
+    "tags": [
+      "js.design"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://dribbble.com/tags/uplabs",
+    "title": "Uplabs designs, themes, templates and downloadable graphic elements on Dribbble",
+    "tags": [
+      "dribbble"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://element.eleme.cn/#/zh-CN",
+    "title": "Element - 【Vue2】",
+    "tags": [
+      "element.eleme"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://element-plus.org/zh-CN/#/zh-CN",
+    "title": "Element Plus｜【Vue3】",
+    "tags": [
+      "element-plus"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.antdv.com/docs/vue/introduce-cn",
+    "title": "Ant Design of Vue ｜【Vue3】",
+    "tags": [
+      "文档",
+      "antdv"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.naiveui.com/zh-CN/os-theme/docs/installation",
+    "title": "Naive UI｜【Vue3】",
+    "tags": [
+      "文档",
+      "naiveui"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://ant-design.antgroup.com/components/overview-cn/",
+    "title": "Ant Design - ｜【Vue3】",
+    "tags": [
+      "ant-design.antgroup"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.shadcn-ui.cn/docs",
+    "title": "shadcn/ui｜【组件库】",
+    "tags": [
+      "文档",
+      "shadcn-ui"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://mui.com/material-ui/getting-started/",
+    "title": "Material UI-【PC】",
+    "tags": [
+      "mui"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://didi.github.io/cube-ui/#/zh-CN/docs/introduction",
+    "title": "cube-ui ｜【滴滴】",
+    "tags": [
+      "开源",
+      "文档",
+      "didi.github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://vant.pro/vant/#/zh-CN/home",
+    "title": "Vant 4｜【Vue3】",
+    "tags": [
+      "vant.pro"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://nutui.jd.com/#/",
+    "title": "NutUI - 移动端组件库",
+    "tags": [
+      "nutui.jd"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://frozenui.github.io/components/components",
+    "title": "FrozenUI ｜【腾讯】",
+    "tags": [
+      "开源",
+      "frozenui.github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://rn.nodejs.cn/docs/components-and-apis",
+    "title": "React Native ｜【React】",
+    "tags": [
+      "文档",
+      "rn.nodejs"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://github.com/eleme/morjs",
+    "title": "eleme/morjs｜【饿了么】",
+    "tags": [
+      "开源",
+      "github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://blog.csdn.net/qq_16242613/article/details/145444655",
+    "title": "React+AI 技术栈（2025 版）-CSDN博客",
+    "tags": [
+      "blog.csdn"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://juejin.cn/post/7349971654590857216?searchId=20250211105930D5CE970C51B2496E77D9",
+    "title": "2024前端高频面试题之-- react篇【前端面试复习系列文章】 2024前端高频面试题-- html篇 2024前端 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://tanstack.com/",
+    "title": "TanStack | High Quality Open-Source Software for Web Developers",
+    "tags": [
+      "开源",
+      "tanstack"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://chakra-ui.com/docs/components/concepts/overview",
+    "title": "Components | Chakra UI",
+    "tags": [
+      "文档",
+      "chakra-ui"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://recharts.org/zh-CN/guide",
+    "title": "DashedLineChart | Recharts",
+    "tags": [
+      "教程",
+      "recharts"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://blueprintjs.com/docs/#datetime2/date-picker3",
+    "title": "Blueprint – 文档 --- Blueprint – Documentation",
+    "tags": [
+      "文档",
+      "blueprintjs"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://chakra-ui.com/",
+    "title": "Chakra UI",
+    "tags": [
+      "chakra-ui"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://flowbite.com/blocks/",
+    "title": "Flowbite Blocks - Tailwind UI Components",
+    "tags": [
+      "flowbite"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.cnblogs.com/hujunwei/p/18658780",
+    "title": "Ollama系列---【Ollama常用命令】 - 少年攻城狮 - 博客园",
+    "tags": [
+      "cnblogs"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://zhuanlan.zhihu.com/p/21417425084",
+    "title": "突发！React官方正式弃用CRA！Next.js、Remix、Vite迁移指南 - 知乎",
+    "tags": [
+      "zhuanlan.zhihu"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://juejin.cn/post/7000973688732385293",
+    "title": "Vue 服务端渲染（SSR）和 NUXT 的介绍spa单页面seo不友好，因为vue的话是只有一个HTML页面，实现页 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://v0.dev/",
+    "title": "v0 by Vercel",
+    "tags": [
+      "v0.dev"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://github.com/signup?ref_cta=Sign+up&ref_loc=header+logged+out&ref_page=%2F&source=header-home",
+    "title": "Sign up to GitHub · GitHub",
+    "tags": [
+      "开源",
+      "github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://github.com/wailsapp/wails?tab=readme-ov-file",
+    "title": "wailsapp/wails: Create beautiful applications using Go",
+    "tags": [
+      "开源",
+      "github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://juejin.cn/post/6844903993278201870",
+    "title": "React 开发必须知道的 34 个技巧【近1W字】通过es6新增class的属性创建的组件此组件创建简单. React - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://juejin.cn/post/7236736926639554615",
+    "title": "后端框架搭建——从零开始搭建一个高颜值后台管理系统全栈框架(二)上期已经说过，我们这个后台管理系统的后端框架采用midw - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://juejin.cn/post/7475248108382535743#heading-20",
+    "title": "前端组长如何利用Docker+Nginx+Jenkins实现项目部署通常部署不会由前端来干，但是市场已经这么卷了，即使不 - 掘金",
+    "tags": [
+      "文档",
+      "juejin"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://juejin.cn/post/7450047052804161576",
+    "title": "我这🤡般的7年开发生涯我在公司做的大部分是探索性、创新性的需求，行内人都知道这些活都是那种脏活累活，需求变化大，经常一 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://juejin.cn/post/7473368911360557092",
+    "title": "程序员创业误区这段时间陆续有创业者找我聊项目，希望我提供技术支持，合伙做点事赚点钱。 有些项目呢，听起来就不靠谱，我在公 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://juejin.cn/post/7362023585517338664",
+    "title": "Rust入门掌握这50个写法就够了Rust，被誉为系统编程语言的新星，以其内存安全和高效的并发控制吸引了大量开发者的关注 - 掘金",
+    "tags": [
+      "编程",
+      "juejin"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://juejin.cn/post/7473342501920915466",
+    "title": "埋头苦干Vue3项目一年半，总结出了16个代码规范从实战中提炼的Vue3开发经验与规范要点全解析，愿你我一同进步，一同提 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://juejin.cn/post/7361401330991497250#heading-7",
+    "title": "使用 hooks 让你的 react 项目起飞在 React 中，自定义 hooks 是扩展组件功能的强大方式。它们可以 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.cnblogs.com/jiaoshou/p/12250278.html",
+    "title": "lint-staged 使用教程 - 较瘦 - 博客园",
+    "tags": [
+      "教程",
+      "cnblogs"
+    ],
+    "category": "学习"
+  },
+  {
+    "url": "https://juejin.cn/post/7472573150003167243",
+    "title": "给准备当前端组长的你一点小建议（四千字干货）~近期，“前端已死”的论调似乎在整个IT圈中盛行，某些地方甚至出现了招聘降薪 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://juejin.cn/post/7397288963624894498",
+    "title": "前端架构岗面试技巧前端架构是前端开发中非常重要的一个方面，它涉及到如何组织代码、处理数据流、管理状态以及设计组件等方面。 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://www.avast.com/zh-cn/random-password-generator#mac",
+    "title": "随机密码生成器 | 告别 12345 | Avast",
+    "tags": [
+      "avast"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://zhuanlan.zhihu.com/p/671095152",
+    "title": "28 个最佳 Tailwind CSS 组件库 - 知乎",
+    "tags": [
+      "zhuanlan.zhihu"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://redis.tinycraft.cc/zh/",
+    "title": "Tiny RDM | Redis桌面管理客户端",
+    "tags": [
+      "redis.tinycraft.cc"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://bobplugin.ripperhe.com/",
+    "title": "Bob Plugin",
+    "tags": [
+      "bobplugin.ripperhe"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.ai-indeed.com/products/agentRpa",
+    "title": "Agent+大模型+RPA_实在智能科技有限公司",
+    "tags": [
+      "ai-indeed"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://ai-bot.cn/#term-2",
+    "title": "AI工具集官网 | 1000+ AI工具集合，国内外AI工具集导航大全",
+    "tags": [
+      "ai-bot"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://yingyayi.com/#%E9%A1%B9%E7%9B%AE",
+    "title": "Yiov - 个人主页",
+    "tags": [
+      "yingyayi"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://www.digit77.com/",
+    "title": "Digit77.com | 海量精品Mac应用免费下载",
+    "tags": [
+      "digit77"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://blog.csdn.net/axutongxue/article/details/118633223",
+    "title": "评测近40个Mac软件下载站，这些是真良心网站！-CSDN博客",
+    "tags": [
+      "blog.csdn"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://blog.goalonez.site/blog/Raycast%E6%8A%98%E8%85%BE%E4%B9%8B%E8%B7%AF%EF%BC%88%E5%B8%B8%E7%94%A8%E5%8A%9F%E8%83%BD%E7%AF%87%EF%BC%89.html#%E5%BF%AB%E6%8D%B7%E7%AA%97%E5%8F%A3%E5%B8%83%E5%B1%80%F0%9F%91%8D",
+    "title": "Raycast折腾之路（常用功能篇） | Goalonez Blog",
+    "tags": [
+      "blog.goalonez.site"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://juejin.cn/post/7535117170248040483#heading-25",
+    "title": "我将封装史上最优雅的 Axios 经过一上午反复打磨，我完成了基于Axios的HTTP客户端封装。它实现统一错误处理、请 - 掘金",
+    "tags": [
+      "juejin"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://github.com/zfile-dev/zfile",
+    "title": "zfile-dev/zfile: 在线云盘、网盘、OneDrive、云存储、私有云、对象存储、h5ai、上传、下载",
+    "tags": [
+      "开源",
+      "github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://github.com/jackfrued/Python-100-Days",
+    "title": "jackfrued/Python-100-Days: Python - 100天从新手到大师",
+    "tags": [
+      "编程",
+      "开源",
+      "github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://github.com/vbenjs/vue-vben-admin",
+    "title": "vbenjs/vue-vben-admin: A modern vue admin panel built with Vue3, Shadcn UI, Vite, TypeScript, and Monorepo. It's fast!",
+    "tags": [
+      "开源",
+      "github"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://zread.ai/",
+    "title": "Zread",
+    "tags": [
+      "zread.ai"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://docs.zhengxinonly.com/",
+    "title": "正心全栈编程-文档站",
+    "tags": [
+      "编程",
+      "文档",
+      "docs.zhengxinonly"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://ui.shadcn.com/blocks",
+    "title": "Building Blocks for the Web - shadcn/ui",
+    "tags": [
+      "ui.shadcn"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://lucide.nodejs.cn/icons/",
+    "title": "Lucide 中文网",
+    "tags": [
+      "lucide.nodejs"
+    ],
+    "category": null
+  },
+  {
+    "url": "https://gitmcp.io/",
+    "title": "GitMCP",
+    "tags": [
+      "gitmcp"
+    ],
+    "category": "技术"
+  },
+  {
+    "url": "https://blog.csdn.net/a100954636/article/details/104949412",
+    "title": "废旧笔记本改造安装黑群晖打造私人NAS超级详细图文教程_笔记本装黑群晖-CSDN博客",
+    "tags": [
+      "教程",
+      "blog.csdn"
+    ],
+    "category": "学习"
+  }
+]

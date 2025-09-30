@@ -1,0 +1,364 @@
+openapi: 3.0.0
+info:
+  title: 书签管理API
+  description: 书签自动打标和分类程序的API接口
+  version: 1.0.0
+servers:
+  - url: http://localhost:9001
+    description: 本地开发服务器
+
+paths:
+  /health:
+    get:
+      summary: 健康检查接口
+      description: 检查应用是否正常运行
+      responses:
+        '200':
+          description: 成功响应
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /bookmark:
+    post:
+      summary: 添加单个书签
+      description: 添加单个书签并自动处理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  description: 书签URL
+                title:
+                  type: string
+                  description: 书签标题
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  description: 书签标签
+                category:
+                  type: string
+                  description: 书签分类
+              required:
+                - url
+      responses:
+        '201':
+          description: 书签处理成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  bookmark:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                      title:
+                        type: string
+                      tags:
+                        type: array
+                        items:
+                          type: string
+                      category:
+                        type: string
+
+  /bookmarks/batch:
+    post:
+      summary: 批量添加书签
+      description: 批量添加书签并自动处理
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bookmarks:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                        description: 书签URL
+                      title:
+                        type: string
+                        description: 书签标题
+                      tags:
+                        type: array
+                        items:
+                          type: string
+                        description: 书签标签
+                      category:
+                        type: string
+                        description: 书签分类
+              required:
+                - bookmarks
+      responses:
+        '201':
+          description: 书签处理成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  bookmarks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        tags:
+                          type: array
+                          items:
+                            type: string
+                        category:
+                          type: string
+
+  /bookmarks:
+    get:
+      summary: 获取所有书签
+      description: 获取所有书签
+      responses:
+        '200':
+          description: 成功响应
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookmarks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        tags:
+                          type: array
+                          items:
+                            type: string
+                        category:
+                          type: string
+
+  /bookmarks/category/{category}:
+    get:
+      summary: 根据分类获取书签
+      description: 根据分类获取书签
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功响应
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookmarks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        tags:
+                          type: array
+                          items:
+                            type: string
+                        category:
+                          type: string
+
+  /bookmarks/tag/{tag}:
+    get:
+      summary: 根据标签获取书签
+      description: 根据标签获取书签
+      parameters:
+        - name: tag
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功响应
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bookmarks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        url:
+                          type: string
+                        title:
+                          type: string
+                        tags:
+                          type: array
+                          items:
+                            type: string
+                        category:
+                          type: string
+
+  /bookmark/{url}:
+    delete:
+      summary: 删除书签
+      description: 根据URL删除书签
+      parameters:
+        - name: url
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 书签删除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '404':
+          description: 书签未找到
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+    put:
+      summary: 更新书签
+      description: 根据URL更新书签
+      parameters:
+        - name: url
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: 书签标题
+                tags:
+                  type: array
+                  items:
+                    type: string
+                  description: 书签标签
+                category:
+                  type: string
+                  description: 书签分类
+                reprocess:
+                  type: boolean
+                  description: 是否重新处理分类和标签
+      responses:
+        '200':
+          description: 书签更新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  bookmark:
+                    type: object
+                    properties:
+                      url:
+                        type: string
+                      title:
+                        type: string
+                      tags:
+                        type: array
+                        items:
+                          type: string
+                      category:
+                        type: string
+        '404':
+          description: 书签未找到
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /bookmark/upload:
+    post:
+      summary: 上传书签文件
+      description: 上传书签文件并处理
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 书签HTML文件
+      responses:
+        '201':
+          description: 文件上传成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  filename:
+                    type: string
+                  file_path:
+                    type: string
+                  processed_count:
+                    type: integer
+                    description: 处理的书签数量
+        '400':
+          description: 文件上传失败
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
