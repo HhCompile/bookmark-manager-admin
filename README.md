@@ -80,7 +80,8 @@ bookmark-manager-admin/
 
 ## 文档
 
-- [项目结构说明](PROJECT_STRUCTURE.md)
-- [优化后的项目问题分析](PROJECT_ISSUES_OPTIMIZED.md)
-- [冗余或未使用代码记录](REDUNDANT_CODE.md)
-- [新功能接入说明文档](INTEGRATION_GUIDE.md)
+- [项目结构说明](docs/PROJECT_STRUCTURE.md)
+- [优化后的项目问题分析](docs/PROJECT_ISSUES_OPTIMIZED.md)
+- [冗余或未使用代码记录](docs/REDUNDANT_CODE.md)
+- [新功能接入说明文档](docs/INTEGRATION_GUIDE.md)
+- [文档索引](docs/DOCUMENTATION.md)

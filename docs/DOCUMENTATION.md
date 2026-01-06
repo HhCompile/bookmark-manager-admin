@@ -8,7 +8,7 @@
 
 | 文档名称 | 主要内容 | 路径 |
 |----------|----------|------|
-| README.md | 项目概述、核心功能、快速启动指南 | [README.md](README.md) |
+| README.md | 项目概述、核心功能、快速启动指南 | [README.md](../README.md) |
 | PROJECT_STRUCTURE.md | 项目结构说明，包括规划和实际结构 | [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) |
 | PROJECT_ISSUES_OPTIMIZED.md | 优化后的项目问题分析 | [PROJECT_ISSUES_OPTIMIZED.md](PROJECT_ISSUES_OPTIMIZED.md) |
 | REDUNDANT_CODE.md | 冗余或未使用代码记录 | [REDUNDANT_CODE.md](REDUNDANT_CODE.md) |
