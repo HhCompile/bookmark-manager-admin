@@ -1,13 +1,30 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-程序入口文件
+程序入口文件（演示用途）
+
+功能：
+1. 演示书签管理系统的基本功能
+2. 展示如何创建书签、自动打标和分类
+3. 用于快速验证系统功能
+
+注意：实际 Web 服务入口是 run.py
 """
 
-from bookmark import Bookmark
-from bookmark_manager import BookmarkManager
-from storage import Storage
-from classifier import Classifier
+import sys
+import os
+
+# 将项目根目录添加到 Python 路径
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from app.models.bookmark import Bookmark
+from app.controllers.bookmark_controller import BookmarkManager
+from app.services.storage_service import Storage
+from app.services.classifier_service import Classifier
+
 
 def main():
+    """主函数 - 演示书签管理功能"""
     # 创建书签管理器
     manager = BookmarkManager()
     
@@ -41,6 +58,7 @@ def main():
     print("处理后的书签:")
     for bookmark in manager.get_bookmarks():
         print(f"- {bookmark}")
+
 
 if __name__ == '__main__':
     main()

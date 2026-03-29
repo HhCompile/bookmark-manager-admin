@@ -11,7 +11,7 @@ paths:
   /health:
     get:
       summary: 健康检查接口
-      description: 检查应用是否正常运行
+      description: 检查应用是否正常运行，返回应用状态、书签数量、存储状态等信息
       responses:
         '200':
           description: 成功响应
@@ -23,11 +23,35 @@ paths:
                   status:
                     type: string
                     example: ok
+                  version:
+                    type: string
+                    example: 1.0.0
+                  bookmarks:
+                    type: object
+                    properties:
+                      count:
+                        type: integer
+                        description: 书签总数
+                      storage_exists:
+                        type: boolean
+                        description: 存储文件是否存在
+                      storage_size_bytes:
+                        type: integer
+                        description: 存储文件大小（字节）
+                  config:
+                    type: object
+                    properties:
+                      upload_folder:
+                        type: string
+                        description: 上传文件目录
+                      max_content_length_mb:
+                        type: integer
+                        description: 最大上传文件大小（MB）
 
   /bookmark:
     post:
       summary: 添加单个书签
-      description: 添加单个书签并自动处理
+      description: 添加单个书签并自动处理，会检查重复URL
       requestBody:
         required: true
         content:
@@ -37,10 +61,10 @@ paths:
               properties:
                 url:
                   type: string
-                  description: 书签URL
+                  description: 书签URL（必需，必须以 http:// 或 https:// 开头）
                 title:
                   type: string
-                  description: 书签标题
+                  description: 书签标题（最大200字符）
                 tags:
                   type: array
                   items:
@@ -74,6 +98,26 @@ paths:
                           type: string
                       category:
                         type: string
+        '400':
+          description: 请求参数错误（URL格式无效）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '409':
+          description: 书签已存在（URL重复）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  url:
+                    type: string
 
   /bookmarks/batch:
     post:
@@ -136,7 +180,37 @@ paths:
   /bookmarks:
     get:
       summary: 获取所有书签
-      description: 获取所有书签
+      description: 获取所有书签，支持分页、分类筛选和标签筛选
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+          description: 页码（从1开始）
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+          description: 每页数量
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 按分类筛选
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+          description: 按标签筛选
       responses:
         '200':
           description: 成功响应
@@ -160,6 +234,30 @@ paths:
                             type: string
                         category:
                           type: string
+                  pagination:
+                    type: object
+                    properties:
+                      page:
+                        type: integer
+                        description: 当前页码
+                      limit:
+                        type: integer
+                        description: 每页数量
+                      total:
+                        type: integer
+                        description: 总数量
+                      pages:
+                        type: integer
+                        description: 总页数
+        '400':
+          description: 无效的请求参数
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
 
   /bookmarks/category/{category}:
     get:
@@ -229,16 +327,22 @@ paths:
                         category:
                           type: string
 
-  /bookmark/{url}:
-    delete:
+  /bookmark/delete:
+    post:
       summary: 删除书签
-      description: 根据URL删除书签
-      parameters:
-        - name: url
-          in: path
-          required: true
-          schema:
-            type: string
+      description: 根据URL删除书签（使用POST请求体避免URL编码问题）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  description: 要删除的书签URL
+              required:
+                - url
       responses:
         '200':
           description: 书签删除成功
@@ -249,6 +353,17 @@ paths:
                 properties:
                   message:
                     type: string
+                  url:
+                    type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
         '404':
           description: 书签未找到
           content:
@@ -256,17 +371,15 @@ paths:
               schema:
                 type: object
                 properties:
-                  message:
+                  error:
                     type: string
-    put:
+                  url:
+                    type: string
+
+  /bookmark/update:
+    post:
       summary: 更新书签
-      description: 根据URL更新书签
-      parameters:
-        - name: url
-          in: path
-          required: true
-          schema:
-            type: string
+      description: 根据URL更新书签（使用POST请求体避免URL编码问题）
       requestBody:
         required: true
         content:
@@ -274,6 +387,9 @@ paths:
             schema:
               type: object
               properties:
+                url:
+                  type: string
+                  description: 要更新的书签URL（必需）
                 title:
                   type: string
                   description: 书签标题
@@ -288,6 +404,8 @@ paths:
                 reprocess:
                   type: boolean
                   description: 是否重新处理分类和标签
+              required:
+                - url
       responses:
         '200':
           description: 书签更新成功
@@ -311,6 +429,15 @@ paths:
                           type: string
                       category:
                         type: string
+        '400':
+          description: 请求参数错误
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
         '404':
           description: 书签未找到
           content:
@@ -320,11 +447,13 @@ paths:
                 properties:
                   error:
                     type: string
+                  url:
+                    type: string
 
   /bookmark/upload:
     post:
       summary: 上传书签文件
-      description: 上传书签文件并处理
+      description: 上传HTML书签文件并自动解析导入。文件大小限制为16MB。
       requestBody:
         required: true
         content:
@@ -335,7 +464,7 @@ paths:
                 file:
                   type: string
                   format: binary
-                  description: 书签HTML文件
+                  description: 书签HTML文件（.html格式，最大16MB）
       responses:
         '201':
           description: 文件上传成功
@@ -348,13 +477,20 @@ paths:
                     type: string
                   filename:
                     type: string
-                  file_path:
-                    type: string
                   processed_count:
                     type: integer
                     description: 处理的书签数量
         '400':
-          description: 文件上传失败
+          description: 文件上传失败（未提供文件或格式错误）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        '413':
+          description: 文件过大（超过16MB限制）
           content:
             application/json:
               schema:

@@ -11,18 +11,16 @@
 """
 
 import os
+import sys
 import logging
-from app.scripts.controller import ScriptController
 from typing import Dict, Any, List
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [script_manager] %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
+# 将项目根目录添加到 Python 路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from app.scripts.controller import ScriptController
+
+# 获取日志记录器（由应用入口统一配置）
 logger = logging.getLogger('script_manager')
 
 

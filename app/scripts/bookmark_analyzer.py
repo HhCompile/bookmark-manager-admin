@@ -32,65 +32,14 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 from abc import ABC, abstractmethod
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [analyzer] %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
+# 将项目根目录添加到 Python 路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+# 导入脚本接口
+from app.scripts.interface import ScriptInterface
+
+# 获取日志记录器
 logger = logging.getLogger('analyzer')
-
-
-class ScriptInterface:
-    """
-    脚本接口基类，定义标准化接口
-    """
-    
-    def __init__(self):
-        self.name = ""
-        self.description = ""
-        self.version = "1.0.0"
-        self.author = ""
-    
-    def configure(self, config: Dict[str, Any]) -> bool:
-        """
-        配置脚本
-        
-        Args:
-            config: 配置参数
-        
-        Returns:
-            bool: 配置是否成功
-        """
-        return True
-    
-    def execute(self, args: List[str]) -> Dict[str, Any]:
-        """
-        执行脚本
-        
-        Args:
-            args: 命令行参数
-        
-        Returns:
-            Dict: 执行结果，包含status和data字段
-        """
-        return {"status": "success", "data": {}}
-    
-    def get_info(self) -> Dict[str, Any]:
-        """
-        获取脚本信息
-        
-        Returns:
-            Dict: 脚本信息
-        """
-        return {
-            "name": self.name,
-            "description": self.description,
-            "version": self.version,
-            "author": self.author
-        }
 
 
 class AIClassifier(ABC):

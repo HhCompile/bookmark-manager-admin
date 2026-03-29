@@ -36,65 +36,11 @@ import json
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
+# 导入脚本接口
+from app.scripts.interface import ScriptInterface
+
+# 获取日志记录器（由应用入口统一配置）
 logger = logging.getLogger('controller')
-
-
-class ScriptInterface:
-    """
-    脚本接口基类，定义标准化接口
-    """
-    
-    def __init__(self):
-        self.name = ""
-        self.description = ""
-        self.version = "1.0.0"
-        self.author = ""
-    
-    def configure(self, config: Dict[str, Any]) -> bool:
-        """
-        配置脚本
-        
-        Args:
-            config: 配置参数
-        
-        Returns:
-            bool: 配置是否成功
-        """
-        return True
-    
-    def execute(self, args: List[str]) -> Dict[str, Any]:
-        """
-        执行脚本
-        
-        Args:
-            args: 命令行参数
-        
-        Returns:
-            Dict: 执行结果，包含status和data字段
-        """
-        return {"status": "success", "data": {}}
-    
-    def get_info(self) -> Dict[str, Any]:
-        """
-        获取脚本信息
-        
-        Returns:
-            Dict: 脚本信息
-        """
-        return {
-            "name": self.name,
-            "description": self.description,
-            "version": self.version,
-            "author": self.author
-        }
 
 
 class ScriptController:
@@ -114,19 +60,52 @@ class ScriptController:
         """
         注册脚本
         
+        安全限制：
+        1. 只允许加载项目内的脚本（防止路径遍历攻击）
+        2. 只允许加载 .py 文件
+        3. 脚本名称只能包含字母、数字、下划线和连字符
+        
         Args:
-            name: 脚本名称
-            script_path: 脚本路径
+            name: 脚本名称（只能包含字母、数字、下划线、连字符）
+            script_path: 脚本路径（必须是项目内的 .py 文件）
         
         Returns:
             Dict: 注册结果
         """
+        import re
+        
         try:
+            # 验证脚本名称（防止注入）
+            if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+                return {
+                    "status": "error",
+                    "message": f"脚本名称无效，只能包含字母、数字、下划线和连字符: {name}"
+                }
+            
             # 检查脚本文件是否存在
             if not os.path.exists(script_path):
                 return {
                     "status": "error",
                     "message": f"脚本文件不存在: {script_path}"
+                }
+            
+            # 安全检查：只允许 .py 文件
+            if not script_path.endswith('.py'):
+                return {
+                    "status": "error",
+                    "message": f"只允许加载 Python 文件 (.py): {script_path}"
+                }
+            
+            # 安全检查：路径遍历防护 - 只允许项目内的脚本
+            # 获取项目根目录（假设为当前工作目录）
+            project_root = os.path.abspath(os.getcwd())
+            abs_script_path = os.path.abspath(script_path)
+            
+            # 确保脚本路径在项目目录内
+            if not abs_script_path.startswith(project_root):
+                return {
+                    "status": "error",
+                    "message": f"安全限制：只能加载项目内的脚本: {script_path}"
                 }
             
             # 检查脚本是否已注册

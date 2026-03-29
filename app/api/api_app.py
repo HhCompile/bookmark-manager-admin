@@ -1,131 +1,173 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Flask Web应用入口文件
 """
 
+import os
+import sys
+import json
+import logging
+import threading
+import uuid
+import tempfile
 from flask import Flask, request, jsonify
+from flask_cors import CORS
+from werkzeug.utils import secure_filename
+from bs4 import BeautifulSoup
+
+# 将项目根目录添加到 Python 路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
 from app.models.bookmark import Bookmark
 from app.controllers.bookmark_controller import BookmarkManager
 from app.services.storage_service import Storage
 from app.services.classifier_service import Classifier
-import os
-import json
-from werkzeug.utils import secure_filename
-from bs4 import BeautifulSoup
 from app.utils.script_manager import script_manager
+from app.utils.serializers import bookmark_to_dict, bookmarks_to_dict_list
 
+# ==================== 日志配置 ====================
+# 统一配置日志，避免重复添加处理器
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger('api')
+
+# ==================== Flask 应用配置 ====================
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['JSON_SORT_KEYS'] = False
+
+# 启用 CORS，允许所有来源访问（生产环境应限制具体域名）
+CORS(app, resources={
+    r"/health": {"origins": "*"},
+    r"/bookmarks/*": {"origins": "*"},
+    r"/bookmark/*": {"origins": "*"},
+    r"/scripts/*": {"origins": "*"},
+})
 
 # 确保上传文件夹存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# 初始化组件
+# ==================== 线程安全锁 ====================
+# 用于保护共享状态（书签数据）
+bookmarks_lock = threading.Lock()
+
+# ==================== 初始化组件 ====================
 manager = BookmarkManager()
 classifier = Classifier()
 storage = Storage('bookmarks.json')
 
 # 在启动时加载已有书签
 manager.bookmarks = storage.load_bookmarks()
+logger.info(f"应用启动，已加载 {len(manager.bookmarks)} 个书签")
 
 def parse_and_process_bookmarks(file_path):
-    """解析并处理书签文件"""
+    """解析并处理书签文件（线程安全）"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        soup = BeautifulSoup(content, 'html.parser')
+        soup = BeautifulSoup(content, 'lxml')
         bookmarks = []
         
         # 查找所有书签链接
         links = soup.find_all('a', href=True)
         
-        for link in links:
-            url = link['href']
-            title = link.get_text(strip=True)
+        with bookmarks_lock:
+            for link in links:
+                url = link['href']
+                title = link.get_text(strip=True)
+                
+                # 创建书签对象
+                bookmark = Bookmark(
+                    url=url,
+                    title=title,
+                    tags=[],
+                    category=None
+                )
+                
+                # 自动打标和分类
+                classifier.tag_bookmark(bookmark)
+                classifier.classify_bookmark(bookmark)
+                
+                # 添加到管理器（自动检查重复）
+                if not manager.has_bookmark(url):
+                    manager.add_bookmark(bookmark)
+                    bookmarks.append(bookmark)
             
-            # 创建书签对象
-            bookmark = Bookmark(
-                url=url,
-                title=title,
-                tags=[],
-                category=None
-            )
-            
-            # 自动打标和分类
-            classifier.tag_bookmark(bookmark)
-            classifier.classify_bookmark(bookmark)
-            
-            # 添加到管理器
-            manager.add_bookmark(bookmark)
-            bookmarks.append(bookmark)
+            # 保存到文件
+            storage.save_bookmarks(manager.get_bookmarks())
         
-        # 保存到文件
-        storage.save_bookmarks(manager.get_bookmarks())
-        
+        logger.info(f"成功处理 {len(bookmarks)} 个书签")
         return len(bookmarks)
     except Exception as e:
-        print(f"Error processing bookmarks file: {e}")
+        logger.error(f"处理书签文件出错: {e}")
         return 0
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    """健康检查接口"""
-    return jsonify({'status': 'ok'})
+    """健康检查接口
+    
+    返回应用状态、书签数量、存储状态等信息
+    """
+    with bookmarks_lock:
+        bookmark_count = len(manager.get_bookmarks())
+    
+    # 检查存储文件状态
+    storage_exists = os.path.exists('bookmarks.json')
+    storage_size = os.path.getsize('bookmarks.json') if storage_exists else 0
+    
+    return jsonify({
+        'status': 'ok',
+        'version': '1.0.0',
+        'bookmarks': {
+            'count': bookmark_count,
+            'storage_exists': storage_exists,
+            'storage_size_bytes': storage_size
+        },
+        'config': {
+            'upload_folder': app.config['UPLOAD_FOLDER'],
+            'max_content_length_mb': app.config['MAX_CONTENT_LENGTH'] // (1024 * 1024)
+        }
+    })
 
 @app.route('/bookmark', methods=['POST'])
 def add_bookmark():
-    """添加单个书签并自动处理"""
+    """添加单个书签并自动处理（线程安全）"""
     data = request.get_json()
     
     if not data or 'url' not in data:
         return jsonify({'error': 'URL is required'}), 400
     
-    # 创建书签对象
-    bookmark = Bookmark(
-        url=data['url'],
-        title=data.get('title', ''),
-        tags=data.get('tags', []),
-        category=data.get('category')
-    )
+    url = data['url']
     
-    # 自动打标和分类
-    classifier.tag_bookmark(bookmark)
-    classifier.classify_bookmark(bookmark)
+    # 验证 URL 格式
+    if not _is_valid_url(url):
+        return jsonify({'error': 'Invalid URL format'}), 400
     
-    # 添加到管理器
-    manager.add_bookmark(bookmark)
+    # 验证和清理输入数据
+    title = _sanitize_string(data.get('title', ''), max_length=200)
+    tags = _sanitize_tags(data.get('tags', []))
+    category = _sanitize_string(data.get('category'), max_length=50) if data.get('category') else None
     
-    # 保存到文件
-    storage.save_bookmarks(manager.get_bookmarks())
-    
-    return jsonify({
-        'message': 'Bookmark processed successfully',
-        'bookmark': {
-            'url': bookmark.url,
-            'title': bookmark.title,
-            'tags': bookmark.tags,
-            'category': bookmark.category
-        }
-    }), 201
-
-@app.route('/bookmarks/batch', methods=['POST'])
-def add_bookmarks_batch():
-    """批量添加书签并自动处理"""
-    data = request.get_json()
-    
-    if not data or 'bookmarks' not in data:
-        return jsonify({'error': 'Bookmarks array is required'}), 400
-    
-    processed_bookmarks = []
-    
-    for item in data['bookmarks']:
+    with bookmarks_lock:
+        # 检查重复
+        if manager.has_bookmark(url):
+            return jsonify({
+                'error': 'Bookmark already exists',
+                'url': url
+            }), 409
+        
         # 创建书签对象
         bookmark = Bookmark(
-            url=item['url'],
-            title=item.get('title', ''),
-            tags=item.get('tags', []),
-            category=item.get('category')
+            url=url,
+            title=title,
+            tags=tags,
+            category=category
         )
         
         # 自动打标和分类
@@ -135,120 +177,216 @@ def add_bookmarks_batch():
         # 添加到管理器
         manager.add_bookmark(bookmark)
         
-        # 添加到结果列表
-        processed_bookmarks.append({
-            'url': bookmark.url,
-            'title': bookmark.title,
-            'tags': bookmark.tags,
-            'category': bookmark.category
-        })
-    
-    # 保存到文件
-    storage.save_bookmarks(manager.get_bookmarks())
+        # 保存到文件
+        storage.save_bookmarks(manager.get_bookmarks())
     
     return jsonify({
-        'message': f'Successfully processed {len(processed_bookmarks)} bookmarks',
+        'message': 'Bookmark processed successfully',
+        'bookmark': bookmark_to_dict(bookmark)
+    }), 201
+
+@app.route('/bookmarks/batch', methods=['POST'])
+def add_bookmarks_batch():
+    """批量添加书签并自动处理（线程安全）"""
+    data = request.get_json()
+    
+    if not data or 'bookmarks' not in data:
+        return jsonify({'error': 'Bookmarks array is required'}), 400
+    
+    processed_bookmarks = []
+    skipped_count = 0
+    
+    with bookmarks_lock:
+        for item in data['bookmarks']:
+            url = item.get('url', '')
+            
+            # 验证 URL
+            if not url or not _is_valid_url(url):
+                skipped_count += 1
+                continue
+            
+            # 检查重复
+            if manager.has_bookmark(url):
+                skipped_count += 1
+                continue
+            
+            # 创建书签对象
+            bookmark = Bookmark(
+                url=url,
+                title=item.get('title', '')[:200],
+                tags=item.get('tags', []),
+                category=item.get('category')
+            )
+            
+            # 自动打标和分类
+            classifier.tag_bookmark(bookmark)
+            classifier.classify_bookmark(bookmark)
+            
+            # 添加到管理器
+            manager.add_bookmark(bookmark)
+            
+            # 添加到结果列表
+            processed_bookmarks.append({
+                'url': bookmark.url,
+                'title': bookmark.title,
+                'tags': bookmark.tags,
+                'category': bookmark.category
+            })
+        
+        # 保存到文件
+        storage.save_bookmarks(manager.get_bookmarks())
+    
+    return jsonify({
+        'message': f'Successfully processed {len(processed_bookmarks)} bookmarks, skipped {skipped_count}',
+        'processed': len(processed_bookmarks),
+        'skipped': skipped_count,
         'bookmarks': processed_bookmarks
     }), 201
 
 @app.route('/bookmarks', methods=['GET'])
 def get_bookmarks():
-    """获取所有书签"""
-    bookmarks = manager.get_bookmarks()
-    result = []
+    """获取所有书签（支持分页）
     
-    for bookmark in bookmarks:
-        result.append({
-            'url': bookmark.url,
-            'title': bookmark.title,
-            'tags': bookmark.tags,
-            'category': bookmark.category
-        })
+    Query Parameters:
+        page: 页码（从1开始，默认1）
+        limit: 每页数量（默认20，最大100）
+        category: 按分类筛选
+        tag: 按标签筛选
+    """
+    # 获取分页参数
+    try:
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 20))
+    except ValueError:
+        return jsonify({'error': 'Invalid pagination parameters'}), 400
+    
+    # 限制分页范围
+    page = max(1, page)
+    limit = max(1, min(limit, 100))  # 限制最大100
+    
+    # 获取筛选参数
+    filter_category = request.args.get('category')
+    filter_tag = request.args.get('tag')
+    
+    with bookmarks_lock:
+        bookmarks = manager.get_bookmarks()
         
-    return jsonify({'bookmarks': result})
+        # 应用筛选
+        if filter_category:
+            bookmarks = [b for b in bookmarks if b.category == filter_category]
+        if filter_tag:
+            bookmarks = [b for b in bookmarks if filter_tag in b.tags]
+        
+        total = len(bookmarks)
+        
+        # 分页
+        start = (page - 1) * limit
+        end = start + limit
+        paginated_bookmarks = bookmarks[start:end]
+        
+        # 使用序列化工具转换
+        result = bookmarks_to_dict_list(paginated_bookmarks)
+    
+    return jsonify({
+        'bookmarks': result,
+        'pagination': {
+            'page': page,
+            'limit': limit,
+            'total': total,
+            'pages': (total + limit - 1) // limit if limit > 0 else 0
+        }
+    })
 
 @app.route('/bookmarks/category/<category>', methods=['GET'])
 def get_bookmarks_by_category(category):
-    """根据分类获取书签"""
-    bookmarks = manager.get_bookmarks_by_category(category)
-    result = []
-    
-    for bookmark in bookmarks:
-        result.append({
-            'url': bookmark.url,
-            'title': bookmark.title,
-            'tags': bookmark.tags,
-            'category': bookmark.category
-        })
-        
+    """根据分类获取书签（线程安全）"""
+    with bookmarks_lock:
+        bookmarks = manager.get_bookmarks_by_category(category)
+        result = bookmarks_to_dict_list(bookmarks)
     return jsonify({'bookmarks': result})
+
 
 @app.route('/bookmarks/tag/<tag>', methods=['GET'])
 def get_bookmarks_by_tag(tag):
-    """根据标签获取书签"""
-    bookmarks = manager.get_bookmarks_by_tag(tag)
-    result = []
-    
-    for bookmark in bookmarks:
-        result.append({
-            'url': bookmark.url,
-            'title': bookmark.title,
-            'tags': bookmark.tags,
-            'category': bookmark.category
-        })
-        
+    """根据标签获取书签（线程安全）"""
+    with bookmarks_lock:
+        bookmarks = manager.get_bookmarks_by_tag(tag)
+        result = bookmarks_to_dict_list(bookmarks)
     return jsonify({'bookmarks': result})
 
-@app.route('/bookmark/<path:url>', methods=['DELETE'])
-def delete_bookmark(url):
-    """根据URL删除书签"""
-    original_count = len(manager.get_bookmarks())
-    manager.remove_bookmark(url)
+@app.route('/bookmark/delete', methods=['POST'])
+def delete_bookmark():
+    """根据URL删除书签（使用POST请求体，避免URL编码问题）
     
-    # 保存到文件
-    storage.save_bookmarks(manager.get_bookmarks())
-    
-    new_count = len(manager.get_bookmarks())
-    
-    if new_count < original_count:
-        return jsonify({'message': 'Bookmark deleted successfully'}), 200
-    else:
-        return jsonify({'message': 'Bookmark not found'}), 404
-
-@app.route('/bookmark/<path:url>', methods=['PUT'])
-def update_bookmark(url):
-    """根据URL更新书签"""
+    Request Body:
+        url: 要删除的书签URL
+    """
     data = request.get_json()
     
-    if not data:
-        return jsonify({'error': 'Request body is required'}), 400
+    if not data or 'url' not in data:
+        return jsonify({'error': 'URL is required in request body'}), 400
     
-    # 查找现有书签
-    bookmarks = manager.get_bookmarks()
-    bookmark = None
-    for b in bookmarks:
-        if b.url == url:
-            bookmark = b
-            break
+    url = data['url']
     
-    if not bookmark:
-        return jsonify({'error': 'Bookmark not found'}), 404
+    with bookmarks_lock:
+        original_count = len(manager.get_bookmarks())
+        manager.remove_bookmark(url)
+        
+        # 保存到文件
+        storage.save_bookmarks(manager.get_bookmarks())
+        
+        new_count = len(manager.get_bookmarks())
     
-    # 更新书签属性
-    if 'title' in data:
-        bookmark.title = data['title']
-    if 'tags' in data:
-        bookmark.tags = data['tags']
-    if 'category' in data:
-        bookmark.category = data['category']
+    if new_count < original_count:
+        return jsonify({'message': 'Bookmark deleted successfully', 'url': url}), 200
+    else:
+        return jsonify({'error': 'Bookmark not found', 'url': url}), 404
+
+@app.route('/bookmark/update', methods=['POST'])
+def update_bookmark():
+    """根据URL更新书签（使用POST请求体，避免URL编码问题）
     
-    # 如果需要重新处理分类和标签
-    if data.get('reprocess', False):
-        classifier.tag_bookmark(bookmark)
-        classifier.classify_bookmark(bookmark)
+    Request Body:
+        url: 要更新的书签URL（必需）
+        title: 新标题（可选）
+        tags: 新标签（可选）
+        category: 新分类（可选）
+        reprocess: 是否重新自动分类（可选）
+    """
+    data = request.get_json()
     
-    # 保存到文件
-    storage.save_bookmarks(manager.get_bookmarks())
+    if not data or 'url' not in data:
+        return jsonify({'error': 'URL is required in request body'}), 400
+    
+    url = data['url']
+    
+    with bookmarks_lock:
+        # 查找现有书签
+        bookmarks = manager.get_bookmarks()
+        bookmark = None
+        for b in bookmarks:
+            if b.url == url:
+                bookmark = b
+                break
+        
+        if not bookmark:
+            return jsonify({'error': 'Bookmark not found', 'url': url}), 404
+        
+        # 更新书签属性
+        if 'title' in data:
+            bookmark.title = str(data['title'])[:200]
+        if 'tags' in data and isinstance(data['tags'], list):
+            bookmark.tags = [str(tag)[:50] for tag in data['tags']]
+        if 'category' in data:
+            bookmark.category = str(data['category'])[:50] if data['category'] else None
+        
+        # 如果需要重新处理分类和标签
+        if data.get('reprocess', False):
+            classifier.tag_bookmark(bookmark)
+            classifier.classify_bookmark(bookmark)
+        
+        # 保存到文件
+        storage.save_bookmarks(manager.get_bookmarks())
     
     return jsonify({
         'message': 'Bookmark updated successfully',
@@ -262,7 +400,7 @@ def update_bookmark(url):
 
 @app.route('/bookmark/upload', methods=['POST'])
 def upload_bookmark_file():
-    """上传书签文件并处理"""
+    """上传书签文件并处理（自动清理上传文件）"""
     # 检查是否有文件上传
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
@@ -277,20 +415,36 @@ def upload_bookmark_file():
     if not file.filename.endswith('.html'):
         return jsonify({'error': 'Invalid file type. Only HTML files are allowed.'}), 400
     
-    # 保存文件
-    filename = secure_filename(file.filename)
+    # 检查文件大小（手动检查，因为 MAX_CONTENT_LENGTH 已经在 Flask 层面处理）
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)  # 重置文件指针
+    
+    if file_size > app.config['MAX_CONTENT_LENGTH']:
+        return jsonify({'error': f'File too large. Maximum size is {app.config["MAX_CONTENT_LENGTH"] // (1024*1024)}MB'}), 413
+    
+    # 使用唯一文件名保存，避免冲突
+    filename = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
     
-    # 解析并处理书签文件
-    processed_count = parse_and_process_bookmarks(file_path)
-    
-    return jsonify({
-        'message': f'File uploaded and processed successfully. {processed_count} bookmarks added.',
-        'filename': filename,
-        'file_path': file_path,
-        'processed_count': processed_count
-    }), 201
+    try:
+        file.save(file_path)
+        
+        # 解析并处理书签文件
+        processed_count = parse_and_process_bookmarks(file_path)
+        
+        return jsonify({
+            'message': f'File uploaded and processed successfully. {processed_count} bookmarks added.',
+            'filename': filename,
+            'processed_count': processed_count
+        }), 201
+    finally:
+        # 确保上传文件被清理
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                logger.warning(f'Failed to remove uploaded file: {e}')
 
 # ------------------------------
 # 新添加的API端点：脚本管理和新功能
@@ -307,7 +461,7 @@ def get_scripts():
 
 @app.route('/scripts/parse', methods=['POST'])
 def parse_bookmarks():
-    """上传HTML书签文件并解析为JSON"""
+    """上传HTML书签文件并解析为JSON（自动清理临时文件）"""
     # 检查是否有文件上传
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
@@ -322,84 +476,92 @@ def parse_bookmarks():
     if not file.filename.endswith('.html'):
         return jsonify({'error': 'Invalid file type. Only HTML files are allowed.'}), 400
     
-    # 保存文件
-    filename = secure_filename(file.filename)
+    # 使用唯一文件名，避免并发冲突
+    unique_id = uuid.uuid4().hex
+    filename = f"{unique_id}_{secure_filename(file.filename)}"
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
-    
-    # 生成输出文件名
-    output_filename = f"parsed_{filename.replace('.html', '.json')}"
+    output_filename = f"parsed_{unique_id}.json"
     output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
     
-    # 运行解析器脚本
-    result = script_manager.run_script('parser', [file_path, output_path])
-    
-    if result['status'] == 'success':
-        # 读取解析结果
-        try:
-            with open(output_path, 'r', encoding='utf-8') as f:
-                parsed_data = json.load(f)
-            
-            return jsonify({
-                'message': 'Bookmarks parsed successfully',
-                'filename': filename,
-                'output_filename': output_filename,
-                'parsed_count': result['data']['bookmark_count'],
-                'parsed_data': parsed_data
-            }), 201
-        except Exception as e:
-            return jsonify({'error': f'Failed to read parsed data: {str(e)}'}), 500
-    else:
-        return jsonify({'error': result['message']}), 500
+    try:
+        # 保存文件
+        file.save(file_path)
+        
+        # 运行解析器脚本
+        result = script_manager.run_script('parser', [file_path, output_path])
+        
+        if result['status'] == 'success':
+            # 读取解析结果
+            try:
+                with open(output_path, 'r', encoding='utf-8') as f:
+                    parsed_data = json.load(f)
+                
+                return jsonify({
+                    'message': 'Bookmarks parsed successfully',
+                    'parsed_count': result['data']['bookmark_count'],
+                    'parsed_data': parsed_data
+                }), 201
+            except Exception as e:
+                return jsonify({'error': f'Failed to read parsed data: {str(e)}'}), 500
+        else:
+            return jsonify({'error': result['message']}), 500
+    finally:
+        # 清理临时文件
+        for path in [file_path, output_path]:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    logger.warning(f'Failed to remove temp file: {e}')
 
 @app.route('/scripts/analyze', methods=['POST'])
 def analyze_bookmarks():
-    """分析书签并生成建议"""
+    """分析书签并生成建议（使用唯一临时文件名，自动清理）"""
     data = request.get_json()
     
     if not data or 'bookmarks' not in data:
         return jsonify({'error': 'Bookmarks data is required'}), 400
     
-    # 保存临时文件
-    temp_input = os.path.join(app.config['UPLOAD_FOLDER'], 'temp_bookmarks.json')
-    with open(temp_input, 'w', encoding='utf-8') as f:
-        json.dump(data['bookmarks'], f, ensure_ascii=False, indent=2)
+    # 使用唯一文件名，避免并发冲突
+    unique_id = uuid.uuid4().hex
+    temp_input = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_bookmarks_{unique_id}.json')
+    temp_output = os.path.join(app.config['UPLOAD_FOLDER'], f'temp_suggestions_{unique_id}.json')
     
-    # 生成输出文件名
-    temp_output = os.path.join(app.config['UPLOAD_FOLDER'], 'temp_suggestions.json')
-    
-    # 运行分析器脚本
-    result = script_manager.run_script('analyzer', [temp_input, temp_output])
-    
-    if result['status'] == 'success':
-        # 读取分析结果
-        try:
+    try:
+        # 保存临时文件
+        with open(temp_input, 'w', encoding='utf-8') as f:
+            json.dump(data['bookmarks'], f, ensure_ascii=False, indent=2)
+        
+        # 运行分析器脚本
+        result = script_manager.run_script('analyzer', [temp_input, temp_output])
+        
+        if result['status'] == 'success':
+            # 读取分析结果
             with open(temp_output, 'r', encoding='utf-8') as f:
                 suggestions = json.load(f)
-            
-            # 删除临时文件
-            os.remove(temp_input)
-            os.remove(temp_output)
             
             return jsonify({
                 'message': 'Bookmarks analyzed successfully',
                 'suggestion_count': result['data']['suggestion_count'],
                 'suggestions': suggestions
             }), 200
-        except Exception as e:
-            return jsonify({'error': f'Failed to read analysis results: {str(e)}'}), 500
-    else:
-        # 删除临时文件
-        if os.path.exists(temp_input):
-            os.remove(temp_input)
-        if os.path.exists(temp_output):
-            os.remove(temp_output)
-        
-        return jsonify({'error': result['message']}), 500
+        else:
+            return jsonify({'error': result['message']}), 500
+    except Exception as e:
+        logger.error(f'Analysis failed: {e}')
+        return jsonify({'error': f'Failed to analyze bookmarks: {str(e)}'}), 500
+    finally:
+        # 确保临时文件被清理
+        for path in [temp_input, temp_output]:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    logger.warning(f'Failed to remove temp file: {e}')
 
 @app.route('/scripts/process', methods=['POST'])
 def process_bookmarks():
-    """上传HTML书签文件，解析并分析生成建议"""
+    """上传HTML书签文件，解析并分析生成建议（自动清理所有临时文件）"""
     # 检查是否有文件上传
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
@@ -414,55 +576,120 @@ def process_bookmarks():
     if not file.filename.endswith('.html'):
         return jsonify({'error': 'Invalid file type. Only HTML files are allowed.'}), 400
     
-    # 保存文件
-    filename = secure_filename(file.filename)
+    # 使用唯一文件名，避免并发冲突
+    unique_id = uuid.uuid4().hex
+    filename = f"{unique_id}_{secure_filename(file.filename)}"
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
+    parsed_path = os.path.join(app.config['UPLOAD_FOLDER'], f'parsed_{unique_id}.json')
+    suggestions_path = os.path.join(app.config['UPLOAD_FOLDER'], f'suggestions_{unique_id}.json')
     
-    # 生成中间文件名
-    parsed_filename = f"parsed_{filename.replace('.html', '.json')}"
-    parsed_path = os.path.join(app.config['UPLOAD_FOLDER'], parsed_filename)
-    suggestions_filename = f"suggestions_{filename.replace('.html', '.json')}"
-    suggestions_path = os.path.join(app.config['UPLOAD_FOLDER'], suggestions_filename)
-    
-    # 运行解析器脚本
-    parse_result = script_manager.run_script('parser', [file_path, parsed_path])
-    
-    if parse_result['status'] != 'success':
-        return jsonify({'error': f'Parsing failed: {parse_result["message"]}'}), 500
-    
-    # 运行分析器脚本
-    analyze_result = script_manager.run_script('analyzer', [parsed_path, suggestions_path])
-    
-    if analyze_result['status'] != 'success':
-        # 删除解析结果文件
-        if os.path.exists(parsed_path):
-            os.remove(parsed_path)
-        return jsonify({'error': f'Analysis failed: {analyze_result["message"]}'}), 500
-    
-    # 读取最终结果
     try:
+        # 保存文件
+        file.save(file_path)
+        
+        # 运行解析器脚本
+        parse_result = script_manager.run_script('parser', [file_path, parsed_path])
+        
+        if parse_result['status'] != 'success':
+            return jsonify({'error': f'Parsing failed: {parse_result["message"]}'}), 500
+        
+        # 运行分析器脚本
+        analyze_result = script_manager.run_script('analyzer', [parsed_path, suggestions_path])
+        
+        if analyze_result['status'] != 'success':
+            return jsonify({'error': f'Analysis failed: {analyze_result["message"]}'}), 500
+        
+        # 读取最终结果
         with open(suggestions_path, 'r', encoding='utf-8') as f:
             suggestions = json.load(f)
         
-        # 删除临时文件
-        os.remove(parsed_path)
-        os.remove(suggestions_path)
-        
         return jsonify({
             'message': 'Bookmarks processed successfully',
-            'filename': filename,
             'parsed_count': parse_result['data']['bookmark_count'],
             'suggestion_count': analyze_result['data']['suggestion_count'],
             'suggestions': suggestions
         }), 201
+        
     except Exception as e:
-        # 清理临时文件
-        if os.path.exists(parsed_path):
-            os.remove(parsed_path)
-        if os.path.exists(suggestions_path):
-            os.remove(suggestions_path)
-        return jsonify({'error': f'Failed to read final results: {str(e)}'}), 500
+        logger.error(f'Processing failed: {e}')
+        return jsonify({'error': f'Failed to process bookmarks: {str(e)}'}), 500
+    finally:
+        # 确保所有临时文件被清理
+        for path in [file_path, parsed_path, suggestions_path]:
+            if os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception as e:
+                    logger.warning(f'Failed to remove temp file: {e}')
+
+def _is_valid_url(url):
+    """验证 URL 格式是否有效
+    
+    Args:
+        url: 要验证的 URL
+        
+    Returns:
+        bool: 是否有效
+    """
+    if not url or not isinstance(url, str):
+        return False
+    url = url.strip()
+    return url.startswith(('http://', 'https://', 'chrome://'))
+
+
+def _sanitize_string(value, max_length=100):
+    """清理字符串输入
+    
+    Args:
+        value: 输入值
+        max_length: 最大长度
+        
+    Returns:
+        str: 清理后的字符串
+    """
+    if not isinstance(value, str):
+        value = str(value) if value else ''
+    value = value.strip()
+    return value[:max_length] if value else ''
+
+
+def _sanitize_tags(tags):
+    """清理标签数组
+    
+    Args:
+        tags: 标签数组
+        
+    Returns:
+        list: 清理后的标签列表
+    """
+    if not isinstance(tags, list):
+        return []
+    # 过滤非字符串元素，清理并去重
+    result = []
+    seen = set()
+    for tag in tags:
+        if isinstance(tag, str):
+            cleaned = tag.strip()[:50]  # 限制单个标签长度
+            if cleaned and cleaned not in seen:
+                result.append(cleaned)
+                seen.add(cleaned)
+    return result
+
+
+def _save_on_exit():
+    """应用退出时保存数据"""
+    try:
+        with bookmarks_lock:
+            storage.save_bookmarks(manager.get_bookmarks())
+            logger.info(f"应用退出，已保存 {len(manager.get_bookmarks())} 个书签")
+    except Exception as e:
+        logger.error(f"退出保存失败: {e}")
+
+
+# 注册退出处理器
+import atexit
+atexit.register(_save_on_exit)
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=9001)

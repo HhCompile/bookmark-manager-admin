@@ -45,65 +45,14 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [parser] %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
+# 将项目根目录添加到 Python 路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+# 导入脚本接口
+from app.scripts.interface import ScriptInterface
+
+# 获取日志记录器
 logger = logging.getLogger('parser')
-
-
-class ScriptInterface:
-    """
-    脚本接口基类，定义标准化接口
-    """
-    
-    def __init__(self):
-        self.name = ""
-        self.description = ""
-        self.version = "1.0.0"
-        self.author = ""
-    
-    def configure(self, config: Dict[str, Any]) -> bool:
-        """
-        配置脚本
-        
-        Args:
-            config: 配置参数
-        
-        Returns:
-            bool: 配置是否成功
-        """
-        return True
-    
-    def execute(self, args: List[str]) -> Dict[str, Any]:
-        """
-        执行脚本
-        
-        Args:
-            args: 命令行参数
-        
-        Returns:
-            Dict: 执行结果，包含status和data字段
-        """
-        return {"status": "success", "data": {}}
-    
-    def get_info(self) -> Dict[str, Any]:
-        """
-        获取脚本信息
-        
-        Returns:
-            Dict: 脚本信息
-        """
-        return {
-            "name": self.name,
-            "description": self.description,
-            "version": self.version,
-            "author": self.author
-        }
 
 
 class BookmarkParser(ScriptInterface):
@@ -284,7 +233,7 @@ class BookmarkParser(ScriptInterface):
             if child.name is None:
                 continue
             
-            # 处理文件夹节点 <DT><H3>...</H3></DT>
+            # 处理文件夹节点 <DT><H3>...</H3><DL>...</DL></DT>
             if child.name == 'dt':
                 h3_tag = child.find('h3')
                 if h3_tag:
@@ -293,11 +242,15 @@ class BookmarkParser(ScriptInterface):
                     new_tags = current_tags.copy()
                     new_tags.append(folder_name)
                     
-                    # 查找文件夹下的DL子元素
-                    next_dl = child.find_next_sibling('dl')
-                    if next_dl:
+                    # 查找文件夹下的DL子元素（直接子元素，而不是下一个兄弟元素）
+                    # Chrome 的书签导出格式：<DT><H3>Folder</H3><DL><p>...</DL>
+                    dl_tag = child.find('dl', recursive=False)
+                    if not dl_tag:
+                        # 尝试在子元素中查找（某些格式可能不同）
+                        dl_tag = child.find('dl')
+                    if dl_tag:
                         # 递归处理子文件夹，深度+1
-                        self.parse_dl_element(next_dl, bookmarks, new_tags, current_depth + 1)
+                        self.parse_dl_element(dl_tag, bookmarks, new_tags, current_depth + 1)
             
             # 处理书签节点 <DT><A>...</A></DT>
             a_tag = child.find('a')
