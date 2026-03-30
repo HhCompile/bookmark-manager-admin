@@ -11,21 +11,24 @@
 """
 
 import os
+import sys
 import json
 import shutil
 import glob
 from datetime import datetime
 from app.models.bookmark import Bookmark
 
+# 将项目根目录添加到 Python 路径
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from app.config import config
+
 
 class Storage:
     """存储服务，负责书签数据的持久化"""
     
-    # 最大备份文件数量
-    MAX_BACKUP_COUNT = 5
-    
-    def __init__(self, file_path):
-        self.file_path = file_path
+    def __init__(self, file_path=None):
+        self.file_path = file_path or config.DATA_FILE
+        self.max_backup_count = config.MAX_BACKUP_COUNT
         
     def save_bookmarks(self, bookmarks):
         """保存书签到文件（原子写入 + 备份）
@@ -73,18 +76,18 @@ class Storage:
             pass
     
     def _cleanup_old_backups(self):
-        """清理旧的备份文件，只保留最近的 MAX_BACKUP_COUNT 个"""
+        """清理旧的备份文件，只保留最近的 max_backup_count 个"""
         try:
             # 查找所有备份文件
             pattern = f"{self.file_path}.*.backup"
             backup_files = glob.glob(pattern)
             
             # 如果备份文件数量超过限制，删除最旧的
-            if len(backup_files) > self.MAX_BACKUP_COUNT:
+            if len(backup_files) > self.max_backup_count:
                 # 按修改时间排序
                 backup_files.sort(key=os.path.getmtime)
                 # 删除多余的旧备份
-                for old_file in backup_files[:-self.MAX_BACKUP_COUNT]:
+                for old_file in backup_files[:-self.max_backup_count]:
                     try:
                         os.remove(old_file)
                     except Exception:

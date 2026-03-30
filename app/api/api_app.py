@@ -12,7 +12,9 @@ import threading
 import uuid
 import tempfile
 import atexit
-from flask import Flask, request, jsonify
+import time
+from logging.handlers import RotatingFileHandler
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from bs4 import BeautifulSoup
@@ -26,32 +28,76 @@ from app.services.storage_service import Storage
 from app.services.classifier_service import Classifier
 from app.utils.script_manager import script_manager
 from app.utils.serializers import bookmark_to_dict, bookmarks_to_dict_list
+from app.config import config
 
 # ==================== 日志配置 ====================
-# 统一配置日志，避免重复添加处理器
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
-    handlers=[logging.StreamHandler()]
-)
-logger = logging.getLogger('api')
+def setup_logging():
+    """配置日志系统"""
+    log_handlers = [logging.StreamHandler()]
+    
+    # 如果配置了日志文件，添加文件处理器（带轮转）
+    if config.LOG_FILE:
+        file_handler = RotatingFileHandler(
+            config.LOG_FILE,
+            maxBytes=config.LOG_MAX_BYTES,
+            backupCount=config.LOG_BACKUP_COUNT,
+            encoding='utf-8'
+        )
+        file_handler.setFormatter(logging.Formatter(
+            '%(asctime)s - %(levelname)s - [%(name)s] %(message)s'
+        ))
+        log_handlers.append(file_handler)
+    
+    logging.basicConfig(
+        level=getattr(logging, config.LOG_LEVEL.upper(), logging.INFO),
+        format='%(asctime)s - %(levelname)s - [%(name)s] %(message)s',
+        handlers=log_handlers
+    )
+    return logging.getLogger('api')
+
+logger = setup_logging()
 
 # ==================== Flask 应用配置 ====================
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = config.MAX_CONTENT_LENGTH
 app.config['JSON_SORT_KEYS'] = False
+app.config['SECRET_KEY'] = config.SECRET_KEY
 
-# 启用 CORS，允许所有来源访问（生产环境应限制具体域名）
+# 启用 CORS
 CORS(app, resources={
-    r"/health": {"origins": "*"},
-    r"/bookmarks/*": {"origins": "*"},
-    r"/bookmark/*": {"origins": "*"},
-    r"/scripts/*": {"origins": "*"},
+    r"/health": {"origins": config.CORS_ORIGINS},
+    r"/v1/*": {"origins": config.CORS_ORIGINS},
 })
 
 # 确保上传文件夹存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# ==================== 请求追踪中间件 ====================
+@app.before_request
+def before_request():
+    """在每个请求前执行：记录请求开始时间和请求 ID"""
+    g.start_time = time.time()
+    # 获取或生成请求 ID
+    g.request_id = request.headers.get('X-Request-ID') or str(uuid.uuid4())[:8]
+    logger.info(f"[{g.request_id}] {request.method} {request.path} - Started")
+
+
+@app.after_request
+def after_request(response):
+    """在每个请求后执行：记录响应时间和状态码"""
+    if hasattr(g, 'start_time'):
+        duration = time.time() - g.start_time
+        status_code = response.status_code
+        logger.info(f"[{g.request_id}] {request.method} {request.path} - "
+                   f"Completed {status_code} in {duration:.3f}s")
+        # 添加请求 ID 到响应头
+        response.headers['X-Request-ID'] = g.request_id
+    return response
+
+
+# API 版本前缀
+API_PREFIX = f"/{config.API_VERSION}"
 
 # ==================== 线程安全锁 ====================
 # 用于保护共享状态（书签数据）
@@ -60,11 +106,11 @@ bookmarks_lock = threading.Lock()
 # ==================== 初始化组件 ====================
 manager = BookmarkManager()
 classifier = Classifier()
-storage = Storage('bookmarks.json')
+storage = Storage(config.DATA_FILE)
 
 # 在启动时加载已有书签
 manager.bookmarks = storage.load_bookmarks()
-logger.info(f"应用启动，已加载 {len(manager.bookmarks)} 个书签")
+logger.info(f"应用启动（版本 {config.APP_VERSION}），已加载 {len(manager.bookmarks)} 个书签")
 
 def parse_and_process_bookmarks(file_path):
     """解析并处理书签文件（线程安全）"""
@@ -109,7 +155,7 @@ def parse_and_process_bookmarks(file_path):
         logger.error(f"处理书签文件出错: {e}")
         return 0
 
-@app.route('/health', methods=['GET'])
+@app.route(f'{API_PREFIX}/health', methods=['GET'])
 def health_check():
     """健康检查接口
     
@@ -136,7 +182,7 @@ def health_check():
         }
     })
 
-@app.route('/bookmark', methods=['POST'])
+@app.route(f'{API_PREFIX}/bookmark', methods=['POST'])
 def add_bookmark():
     """添加单个书签并自动处理（线程安全）"""
     data = request.get_json()
@@ -234,7 +280,7 @@ def _process_bookmark_item(item, manager, classifier):
     return True, bookmark_to_dict(bookmark)
 
 
-@app.route('/bookmarks/batch', methods=['POST'])
+@app.route(f'{API_PREFIX}/bookmarks/batch', methods=['POST'])
 def add_bookmarks_batch():
     """批量添加书签并自动处理（线程安全）"""
     data = request.get_json()
@@ -272,7 +318,7 @@ def add_bookmarks_batch():
         'bookmarks': processed_bookmarks
     }), 201
 
-@app.route('/bookmarks', methods=['GET'])
+@app.route(f'{API_PREFIX}/bookmarks', methods=['GET'])
 def get_bookmarks():
     """获取所有书签（支持分页）
     
@@ -326,7 +372,7 @@ def get_bookmarks():
         }
     })
 
-@app.route('/bookmarks/category/<category>', methods=['GET'])
+@app.route(f'{API_PREFIX}/bookmarks/category/<category>', methods=['GET'])
 def get_bookmarks_by_category(category):
     """根据分类获取书签（线程安全）"""
     with bookmarks_lock:
@@ -335,7 +381,7 @@ def get_bookmarks_by_category(category):
     return jsonify({'bookmarks': result})
 
 
-@app.route('/bookmarks/tag/<tag>', methods=['GET'])
+@app.route(f'{API_PREFIX}/bookmarks/tag/<tag>', methods=['GET'])
 def get_bookmarks_by_tag(tag):
     """根据标签获取书签（线程安全）"""
     with bookmarks_lock:
@@ -343,7 +389,7 @@ def get_bookmarks_by_tag(tag):
         result = bookmarks_to_dict_list(bookmarks)
     return jsonify({'bookmarks': result})
 
-@app.route('/bookmark/delete', methods=['POST'])
+@app.route(f'{API_PREFIX}/bookmark/delete', methods=['POST'])
 def delete_bookmark():
     """根据URL删除书签（使用POST请求体，避免URL编码问题）
     
@@ -371,7 +417,7 @@ def delete_bookmark():
     else:
         return jsonify({'error': 'Bookmark not found', 'url': url}), 404
 
-@app.route('/bookmark/update', methods=['POST'])
+@app.route(f'{API_PREFIX}/bookmark/update', methods=['POST'])
 def update_bookmark():
     """根据URL更新书签（使用POST请求体，避免URL编码问题）
     
@@ -427,7 +473,7 @@ def update_bookmark():
         }
     }), 200
 
-@app.route('/bookmark/upload', methods=['POST'])
+@app.route(f'{API_PREFIX}/bookmark/upload', methods=['POST'])
 def upload_bookmark_file():
     """上传书签文件并处理（自动清理上传文件）"""
     # 检查是否有文件上传
@@ -483,7 +529,7 @@ def upload_bookmark_file():
 # 新添加的API端点：脚本管理和新功能
 # ------------------------------
 
-@app.route('/scripts', methods=['GET'])
+@app.route(f'{API_PREFIX}/scripts', methods=['GET'])
 def get_scripts():
     """获取已注册的脚本列表"""
     result = script_manager.list_scripts()
@@ -492,7 +538,7 @@ def get_scripts():
     else:
         return jsonify({'error': result['message']}), 500
 
-@app.route('/scripts/parse', methods=['POST'])
+@app.route(f'{API_PREFIX}/scripts/parse', methods=['POST'])
 def parse_bookmarks():
     """上传HTML书签文件并解析为JSON（自动清理临时文件）"""
     # 检查是否有文件上传
@@ -547,7 +593,7 @@ def parse_bookmarks():
                 except Exception as e:
                     logger.warning(f'Failed to remove temp file: {e}')
 
-@app.route('/scripts/analyze', methods=['POST'])
+@app.route(f'{API_PREFIX}/scripts/analyze', methods=['POST'])
 def analyze_bookmarks():
     """分析书签并生成建议（使用唯一临时文件名，自动清理）"""
     data = request.get_json()
@@ -592,7 +638,7 @@ def analyze_bookmarks():
                 except Exception as e:
                     logger.warning(f'Failed to remove temp file: {e}')
 
-@app.route('/scripts/process', methods=['POST'])
+@app.route(f'{API_PREFIX}/scripts/process', methods=['POST'])
 def process_bookmarks():
     """上传HTML书签文件，解析并分析生成建议（自动清理所有临时文件）"""
     # 检查是否有文件上传

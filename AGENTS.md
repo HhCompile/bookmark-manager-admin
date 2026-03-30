@@ -39,6 +39,7 @@ bookmark-manager-admin/
 │   │   └── bookmark.py           # 书签数据模型
 │   ├── scripts/                  # 脚本模块，处理特定功能
 │   │   ├── __init__.py
+│   │   ├── interface.py          # 脚本接口定义
 │   │   ├── bookmark_analyzer.py  # 书签分析脚本
 │   │   ├── bookmark_parser.py    # 书签解析脚本
 │   │   └── controller.py         # 脚本控制器
@@ -48,7 +49,9 @@ bookmark-manager-admin/
 │   │   └── storage_service.py    # 存储服务
 │   ├── utils/                    # 工具类，提供通用功能
 │   │   ├── __init__.py
-│   │   └── script_manager.py     # 脚本管理器
+│   │   ├── script_manager.py     # 脚本管理器
+│   │   └── serializers.py        # 序列化工具
+│   ├── config.py                 # 应用配置
 │   └── __init__.py
 ├── docs/                         # 文档目录
 │   ├── DOCUMENTATION.md          # 文档索引
@@ -58,6 +61,8 @@ bookmark-manager-admin/
 │   └── REDUNDANT_CODE.md         # 冗余或未使用代码记录
 ├── uploads/                      # 上传文件目录
 ├── bookmarks.json                # 书签数据文件
+├── .gitignore                    # Git 忽略配置
+├── .env.example                  # 环境变量示例
 ├── openapi.yaml                  # API 文档 (OpenAPI 3.0)
 ├── requirements.txt              # 项目依赖
 ├── run.py                        # 应用入口
@@ -188,23 +193,25 @@ class MyScript(ScriptInterface):
 
 ## API 端点
 
+所有 API 端点都使用 `/v1` 版本前缀。
+
 ### 书签管理
 
 | 方法 | 端点 | 功能 |
 |------|------|------|
-| GET | `/health` | 健康检查 |
-| GET | `/bookmarks` | 获取所有书签（支持分页和筛选） |
-| POST | `/bookmark` | 添加单个书签（自动检查重复） |
-| POST | `/bookmarks/batch` | 批量添加书签 |
-| GET | `/bookmarks/category/<category>` | 按分类获取书签 |
-| GET | `/bookmarks/tag/<tag>` | 按标签获取书签 |
-| POST | `/bookmark/update` | 更新书签（新） |
-| POST | `/bookmark/delete` | 删除书签（新） |
-| POST | `/bookmark/upload` | 上传 HTML 书签文件 |
+| GET | `/v1/health` | 健康检查 |
+| GET | `/v1/bookmarks` | 获取所有书签（支持分页和筛选） |
+| POST | `/v1/bookmark` | 添加单个书签（自动检查重复） |
+| POST | `/v1/bookmarks/batch` | 批量添加书签 |
+| GET | `/v1/bookmarks/category/<category>` | 按分类获取书签 |
+| GET | `/v1/bookmarks/tag/<tag>` | 按标签获取书签 |
+| POST | `/v1/bookmark/update` | 更新书签（新） |
+| POST | `/v1/bookmark/delete` | 删除书签（新） |
+| POST | `/v1/bookmark/upload` | 上传 HTML 书签文件 |
 
 ### 查询参数
 
-- `/bookmarks` 支持以下查询参数：
+- `/v1/bookmarks` 支持以下查询参数：
   - `page`: 页码（默认 1）
   - `limit`: 每页数量（默认 20，最大 100）
   - `category`: 按分类筛选
@@ -214,10 +221,14 @@ class MyScript(ScriptInterface):
 
 | 方法 | 端点 | 功能 |
 |------|------|------|
-| GET | `/scripts` | 获取已注册的脚本列表 |
-| POST | `/scripts/parse` | 上传 HTML 书签文件并解析为 JSON |
-| POST | `/scripts/analyze` | 分析书签并生成建议 |
-| POST | `/scripts/process` | 上传 HTML 书签文件，解析并分析生成建议 |
+| GET | `/v1/scripts` | 获取已注册的脚本列表 |
+| POST | `/v1/scripts/parse` | 上传 HTML 书签文件并解析为 JSON |
+| POST | `/v1/scripts/analyze` | 分析书签并生成建议 |
+| POST | `/v1/scripts/process` | 上传 HTML 书签文件，解析并分析生成建议 |
+
+### 请求追踪
+
+每个请求都会分配一个唯一的请求 ID，可以在响应头的 `X-Request-ID` 中获取。也可以在请求头中传入自定义的 `X-Request-ID` 进行追踪。
 
 ## 脚本接口规范
 
@@ -347,6 +358,13 @@ pytest --cov=app --cov-report=html
 ### 第五轮修复
 30. ✅ 代码重复导入 - `bookmark_analyzer.py` 中两个函数内的 `import re` 移到文件顶部
 31. ✅ 函数过长 - 拆分 `add_bookmarks_batch`（56行）为两个函数，提取 `_process_bookmark_item`
+
+### 第六轮修复 - 生产环境优化
+32. ✅ **API 版本控制** - 添加 `/v1/` 前缀到所有端点，如 `/v1/bookmarks`
+33. ✅ **日志轮转** - 添加 `RotatingFileHandler`，支持按大小轮转日志
+34. ✅ **集中式配置** - 创建 `app/config.py`，支持环境变量覆盖
+35. ✅ **请求 ID 追踪** - 添加 `X-Request-ID` Header，便于日志追踪
+36. ✅ **响应时间监控** - 在日志中记录每个请求的耗时
 
 ## 待完成
 

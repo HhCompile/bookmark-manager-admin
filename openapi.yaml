@@ -8,7 +8,7 @@ servers:
     description: 本地开发服务器
 
 paths:
-  /health:
+  /v1/health:
     get:
       summary: 健康检查接口
       description: 检查应用是否正常运行，返回应用状态、书签数量、存储状态等信息
@@ -48,7 +48,7 @@ paths:
                         type: integer
                         description: 最大上传文件大小（MB）
 
-  /bookmark:
+  /v1/bookmark:
     post:
       summary: 添加单个书签
       description: 添加单个书签并自动处理，会检查重复URL
@@ -119,7 +119,7 @@ paths:
                   url:
                     type: string
 
-  /bookmarks/batch:
+  /v1/bookmarks/batch:
     post:
       summary: 批量添加书签
       description: 批量添加书签并自动处理，最多支持1000个书签。无效URL和重复书签会被跳过。
@@ -193,7 +193,7 @@ paths:
                   error:
                     type: string
 
-  /bookmarks:
+  /v1/bookmarks:
     get:
       summary: 获取所有书签
       description: 获取所有书签，支持分页、分类筛选和标签筛选
@@ -275,7 +275,7 @@ paths:
                   error:
                     type: string
 
-  /bookmarks/category/{category}:
+  /v1/bookmarks/category/{category}:
     get:
       summary: 根据分类获取书签
       description: 根据分类获取书签
@@ -309,7 +309,7 @@ paths:
                         category:
                           type: string
 
-  /bookmarks/tag/{tag}:
+  /v1/bookmarks/tag/{tag}:
     get:
       summary: 根据标签获取书签
       description: 根据标签获取书签
@@ -343,7 +343,7 @@ paths:
                         category:
                           type: string
 
-  /bookmark/delete:
+  /v1/bookmark/delete:
     post:
       summary: 删除书签
       description: 根据URL删除书签（使用POST请求体避免URL编码问题）
@@ -392,7 +392,7 @@ paths:
                   url:
                     type: string
 
-  /bookmark/update:
+  /v1/bookmark/update:
     post:
       summary: 更新书签
       description: 根据URL更新书签（使用POST请求体避免URL编码问题）
@@ -466,7 +466,7 @@ paths:
                   url:
                     type: string
 
-  /bookmark/upload:
+  /v1/bookmark/upload:
     post:
       summary: 上传书签文件
       description: 上传HTML书签文件并自动解析导入。文件大小限制为16MB。
