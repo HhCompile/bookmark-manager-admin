@@ -28,6 +28,7 @@ import json
 import csv
 import logging
 import random
+import re
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from abc import ABC, abstractmethod
@@ -404,7 +405,6 @@ class BookmarkAnalyzer(ScriptInterface):
             简洁标题
         """
         # 移除括号及内容
-        import re
         clean = re.sub(r'\[.*?\]|\(.*?\)|\{.*?\}|【.*?】|（.*?）', '', title)
         # 移除特殊符号和多余空格
         clean = re.sub(r'[|_|+|@|#|!|?|,|;|:|\*|/]', ' ', clean)
@@ -459,7 +459,6 @@ class BookmarkAnalyzer(ScriptInterface):
             关键词组合
         """
         # 提取核心关键词
-        import re
         # 移除特殊符号
         clean = re.sub(r'[^\w\u4e00-\u9fa5]', ' ', title)
         words = clean.split()

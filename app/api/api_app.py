@@ -186,6 +186,54 @@ def add_bookmark():
         'bookmark': bookmark_to_dict(bookmark)
     }), 201
 
+def _process_bookmark_item(item, manager, classifier):
+    """处理单个书签条目（内部函数，不持有锁）
+    
+    Args:
+        item: 书签数据字典
+        manager: BookmarkManager 实例
+        classifier: Classifier 实例
+        
+    Returns:
+        tuple: (success: bool, result: dict or None)
+    """
+    # 验证条目类型
+    if not isinstance(item, dict):
+        return False, None
+    
+    url = item.get('url', '')
+    
+    # 验证 URL
+    if not url or not _is_valid_url(url):
+        return False, None
+    
+    # 检查重复
+    if manager.has_bookmark(url):
+        return False, None
+    
+    # 清理输入数据
+    title = _sanitize_string(item.get('title', ''), max_length=200)
+    tags = _sanitize_tags(item.get('tags', []))
+    category = _sanitize_string(item.get('category'), max_length=50) if item.get('category') else None
+    
+    # 创建书签对象
+    bookmark = Bookmark(
+        url=url,
+        title=title,
+        tags=tags,
+        category=category
+    )
+    
+    # 自动打标和分类
+    classifier.tag_bookmark(bookmark)
+    classifier.classify_bookmark(bookmark)
+    
+    # 添加到管理器
+    manager.add_bookmark(bookmark)
+    
+    return True, bookmark_to_dict(bookmark)
+
+
 @app.route('/bookmarks/batch', methods=['POST'])
 def add_bookmarks_batch():
     """批量添加书签并自动处理（线程安全）"""
@@ -208,45 +256,11 @@ def add_bookmarks_batch():
     
     with bookmarks_lock:
         for item in bookmarks_list:
-            # 验证每个条目是字典类型
-            if not isinstance(item, dict):
+            success, result = _process_bookmark_item(item, manager, classifier)
+            if success:
+                processed_bookmarks.append(result)
+            else:
                 skipped_count += 1
-                continue
-            
-            url = item.get('url', '')
-            
-            # 验证 URL
-            if not url or not _is_valid_url(url):
-                skipped_count += 1
-                continue
-            
-            # 检查重复
-            if manager.has_bookmark(url):
-                skipped_count += 1
-                continue
-            
-            # 清理输入数据
-            title = _sanitize_string(item.get('title', ''), max_length=200)
-            tags = _sanitize_tags(item.get('tags', []))
-            category = _sanitize_string(item.get('category'), max_length=50) if item.get('category') else None
-            
-            # 创建书签对象
-            bookmark = Bookmark(
-                url=url,
-                title=title,
-                tags=tags,
-                category=category
-            )
-            
-            # 自动打标和分类
-            classifier.tag_bookmark(bookmark)
-            classifier.classify_bookmark(bookmark)
-            
-            # 添加到管理器
-            manager.add_bookmark(bookmark)
-            
-            # 添加到结果列表
-            processed_bookmarks.append(bookmark_to_dict(bookmark))
         
         # 保存到文件
         storage.save_bookmarks(manager.get_bookmarks())

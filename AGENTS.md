@@ -344,10 +344,16 @@ pytest --cov=app --cov-report=html
 28. ✅ 文件大小检查 - 添加异常处理，防止不支持 seek 的文件对象导致错误
 29. ✅ API 文档 - 更新批量添加接口的文档
 
+### 第五轮修复
+30. ✅ 代码重复导入 - `bookmark_analyzer.py` 中两个函数内的 `import re` 移到文件顶部
+31. ✅ 函数过长 - 拆分 `add_bookmarks_batch`（56行）为两个函数，提取 `_process_bookmark_item`
+
 ## 待完成
 
 1. 项目没有配置正式的测试框架
 2. 缺少生产环境部署配置（如 Docker、Gunicorn 配置等）
+3. 大文件读取优化 - 当前使用 `f.read()`，对于极大文件可考虑分块读取
+4. 磁盘 I/O 优化 - 每次操作都保存，可考虑批量保存或延迟保存机制
 
 ## 相关文档
 
