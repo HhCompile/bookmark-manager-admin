@@ -11,6 +11,7 @@ import logging
 import threading
 import uuid
 import tempfile
+import atexit
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -193,11 +194,25 @@ def add_bookmarks_batch():
     if not data or 'bookmarks' not in data:
         return jsonify({'error': 'Bookmarks array is required'}), 400
     
+    # 验证 bookmarks 是列表类型
+    bookmarks_list = data['bookmarks']
+    if not isinstance(bookmarks_list, list):
+        return jsonify({'error': 'Bookmarks must be an array'}), 400
+    
+    # 限制批量处理数量（防止过大请求）
+    if len(bookmarks_list) > 1000:
+        return jsonify({'error': 'Too many bookmarks. Maximum is 1000 per request'}), 400
+    
     processed_bookmarks = []
     skipped_count = 0
     
     with bookmarks_lock:
-        for item in data['bookmarks']:
+        for item in bookmarks_list:
+            # 验证每个条目是字典类型
+            if not isinstance(item, dict):
+                skipped_count += 1
+                continue
+            
             url = item.get('url', '')
             
             # 验证 URL
@@ -210,12 +225,17 @@ def add_bookmarks_batch():
                 skipped_count += 1
                 continue
             
+            # 清理输入数据
+            title = _sanitize_string(item.get('title', ''), max_length=200)
+            tags = _sanitize_tags(item.get('tags', []))
+            category = _sanitize_string(item.get('category'), max_length=50) if item.get('category') else None
+            
             # 创建书签对象
             bookmark = Bookmark(
                 url=url,
-                title=item.get('title', '')[:200],
-                tags=item.get('tags', []),
-                category=item.get('category')
+                title=title,
+                tags=tags,
+                category=category
             )
             
             # 自动打标和分类
@@ -226,12 +246,7 @@ def add_bookmarks_batch():
             manager.add_bookmark(bookmark)
             
             # 添加到结果列表
-            processed_bookmarks.append({
-                'url': bookmark.url,
-                'title': bookmark.title,
-                'tags': bookmark.tags,
-                'category': bookmark.category
-            })
+            processed_bookmarks.append(bookmark_to_dict(bookmark))
         
         # 保存到文件
         storage.save_bookmarks(manager.get_bookmarks())
@@ -372,13 +387,13 @@ def update_bookmark():
         if not bookmark:
             return jsonify({'error': 'Bookmark not found', 'url': url}), 404
         
-        # 更新书签属性
+        # 更新书签属性（使用清理函数）
         if 'title' in data:
-            bookmark.title = str(data['title'])[:200]
-        if 'tags' in data and isinstance(data['tags'], list):
-            bookmark.tags = [str(tag)[:50] for tag in data['tags']]
+            bookmark.title = _sanitize_string(data['title'], max_length=200)
+        if 'tags' in data:
+            bookmark.tags = _sanitize_tags(data['tags'])
         if 'category' in data:
-            bookmark.category = str(data['category'])[:50] if data['category'] else None
+            bookmark.category = _sanitize_string(data['category'], max_length=50) if data['category'] else None
         
         # 如果需要重新处理分类和标签
         if data.get('reprocess', False):
@@ -416,9 +431,13 @@ def upload_bookmark_file():
         return jsonify({'error': 'Invalid file type. Only HTML files are allowed.'}), 400
     
     # 检查文件大小（手动检查，因为 MAX_CONTENT_LENGTH 已经在 Flask 层面处理）
-    file.seek(0, os.SEEK_END)
-    file_size = file.tell()
-    file.seek(0)  # 重置文件指针
+    try:
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)  # 重置文件指针
+    except (OSError, IOError):
+        # 如果文件不支持 seek 操作，尝试从 content_length 获取
+        file_size = request.content_length or 0
     
     if file_size > app.config['MAX_CONTENT_LENGTH']:
         return jsonify({'error': f'File too large. Maximum size is {app.config["MAX_CONTENT_LENGTH"] // (1024*1024)}MB'}), 413
@@ -687,7 +706,6 @@ def _save_on_exit():
 
 
 # 注册退出处理器
-import atexit
 atexit.register(_save_on_exit)
 
 
