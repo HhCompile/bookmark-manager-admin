@@ -461,11 +461,11 @@ def delete_bookmark():
         storage.save_bookmarks(manager.get_bookmarks())
         
         new_count = len(manager.get_bookmarks())
-    
-    if new_count < original_count:
-        return jsonify({'message': 'Bookmark deleted successfully', 'url': url}), 200
-    else:
-        return jsonify({'error': 'Bookmark not found', 'url': url}), 404
+        
+        if new_count < original_count:
+            return jsonify({'message': 'Bookmark deleted successfully', 'url': url}), 200
+        else:
+            return jsonify({'error': 'Bookmark not found', 'url': url}), 404
 
 @app.route(f'{API_PREFIX}/bookmark/update', methods=['POST'])
 def update_bookmark():
@@ -838,6 +838,341 @@ class Constants:
     MAX_TAG_LENGTH = 50
     MAX_CATEGORY_LENGTH = 50
     MAX_TAG_COUNT = 100
+
+
+# ==================== 数据清洗和导出接口 ====================
+
+@app.route(f'{API_PREFIX}/bookmarks/export', methods=['POST'])
+def export_bookmarks():
+    """导出书签数据
+    
+    Request Body:
+        format: 导出格式 ('json', 'csv', 'html')
+        filter: 筛选条件（可选）
+            - category: 按分类筛选
+            - tag: 按标签筛选
+    
+    Returns:
+        导出的文件内容
+    """
+    data = request.get_json() or {}
+    export_format = data.get('format', 'json').lower()
+    filters = data.get('filter', {})
+    
+    with bookmarks_lock:
+        bookmarks = manager.get_bookmarks()
+        
+        # 应用筛选
+        if filters.get('category'):
+            bookmarks = [b for b in bookmarks if b.category == filters['category']]
+        if filters.get('tag'):
+            bookmarks = [b for b in bookmarks if filters['tag'] in b.tags]
+    
+    try:
+        if export_format == 'json':
+            # JSON 格式
+            export_data = bookmarks_to_dict_list(bookmarks)
+            return jsonify({
+                'format': 'json',
+                'count': len(export_data),
+                'data': export_data
+            }), 200
+            
+        elif export_format == 'csv':
+            # CSV 格式
+            import csv
+            import io
+            
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(['url', 'title', 'tags', 'category'])
+            
+            for b in bookmarks:
+                writer.writerow([b.url, b.title, '|'.join(b.tags), b.category or ''])
+            
+            return jsonify({
+                'format': 'csv',
+                'count': len(bookmarks),
+                'content': output.getvalue()
+            }), 200
+            
+        elif export_format == 'html':
+            # HTML 书签格式
+            html_parts = [
+                '<!DOCTYPE NETSCAPE-Bookmark-file-1>',
+                '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+                '<TITLE>Bookmarks</TITLE>',
+                '<H1>Bookmarks</H1>',
+                '<DL><p>'
+            ]
+            
+            for b in bookmarks:
+                tags_attr = f' tags="{",".join(b.tags)}"' if b.tags else ''
+                category_attr = f' category="{b.category}"' if b.category else ''
+                html_parts.append(f'    <DT><A HREF="{b.url}"{tags_attr}{category_attr}>{b.title}</A>')
+            
+            html_parts.append('</DL><p>')
+            
+            return jsonify({
+                'format': 'html',
+                'count': len(bookmarks),
+                'content': '\n'.join(html_parts)
+            }), 200
+        else:
+            return jsonify({'error': f'Unsupported format: {export_format}'}), 400
+            
+    except Exception:
+        logger.exception('Export failed')
+        return jsonify({'error': 'Failed to export bookmarks'}), 500
+
+
+@app.route(f'{API_PREFIX}/bookmarks/batch-update', methods=['POST'])
+def batch_update_bookmarks():
+    """批量更新书签（数据清洗）
+    
+    Request Body:
+        updates: 更新规则数组
+            - match: 匹配条件
+                - field: 'url' | 'title' | 'category' | 'tags'
+                - pattern: 匹配模式（字符串包含或正则）
+            - action: 操作
+                - type: 'replace' | 'add_tag' | 'remove_tag' | 'set_category' | 'reprocess'
+                - value: 新值
+    
+    Returns:
+        更新统计信息
+    """
+    data = request.get_json()
+    
+    if not data or 'updates' not in data:
+        return jsonify({'error': 'updates array is required'}), 400
+    
+    updates = data['updates']
+    if not isinstance(updates, list):
+        return jsonify({'error': 'updates must be an array'}), 400
+    
+    updated_count = 0
+    skipped_count = 0
+    
+    with bookmarks_lock:
+        bookmarks = manager.get_bookmarks()
+        
+        for bookmark in bookmarks:
+            bookmark_updated = False
+            
+            for update in updates:
+                match = update.get('match', {})
+                action = update.get('action', {})
+                
+                # 检查是否匹配
+                field = match.get('field')
+                pattern = match.get('pattern')
+                
+                if field and pattern:
+                    field_value = getattr(bookmark, field, '')
+                    if field == 'tags':
+                        # 标签特殊处理
+                        if pattern not in field_value:
+                            continue
+                    else:
+                        if pattern not in str(field_value):
+                            continue
+                
+                # 执行操作
+                action_type = action.get('type')
+                action_value = action.get('value')
+                
+                if action_type == 'replace' and field:
+                    # 替换字段值
+                    if field == 'tags':
+                        bookmark.tags = [action_value] if isinstance(action_value, str) else action_value
+                    else:
+                        setattr(bookmark, field, action_value)
+                    bookmark_updated = True
+                    
+                elif action_type == 'add_tag' and action_value:
+                    # 添加标签
+                    if action_value not in bookmark.tags:
+                        bookmark.tags.append(action_value)
+                        bookmark_updated = True
+                        
+                elif action_type == 'remove_tag' and action_value:
+                    # 移除标签
+                    if action_value in bookmark.tags:
+                        bookmark.tags.remove(action_value)
+                        bookmark_updated = True
+                        
+                elif action_type == 'set_category':
+                    # 设置分类
+                    bookmark.category = action_value
+                    bookmark_updated = True
+                    
+                elif action_type == 'reprocess':
+                    # 重新自动分类
+                    classifier.tag_bookmark(bookmark)
+                    classifier.classify_bookmark(bookmark)
+                    bookmark_updated = True
+            
+            if bookmark_updated:
+                updated_count += 1
+        
+        # 保存更改
+        if updated_count > 0:
+            storage.save_bookmarks(manager.get_bookmarks())
+    
+    return jsonify({
+        'message': f'Batch update completed',
+        'updated': updated_count,
+        'skipped': skipped_count,
+        'total': len(bookmarks)
+    }), 200
+
+
+@app.route(f'{API_PREFIX}/bookmarks/batch-delete', methods=['POST'])
+def batch_delete_bookmarks():
+    """批量删除书签
+    
+    Request Body:
+        filter: 删除条件（与 batch-update 相同的匹配规则）
+        urls: 或者直接提供要删除的 URL 数组
+    
+    Returns:
+        删除统计信息
+    """
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({'error': 'Request body is required'}), 400
+    
+    deleted_count = 0
+    
+    with bookmarks_lock:
+        original_count = len(manager.get_bookmarks())
+        
+        # 方式1：按 URL 列表删除
+        if 'urls' in data:
+            urls = data['urls']
+            if isinstance(urls, list):
+                for url in urls:
+                    manager.remove_bookmark(url)
+                    deleted_count += 1
+        
+        # 方式2：按条件删除
+        elif 'filter' in data:
+            filter_condition = data['filter']
+            field = filter_condition.get('field')
+            pattern = filter_condition.get('pattern')
+            
+            bookmarks = manager.get_bookmarks()
+            to_delete = []
+            
+            for bookmark in bookmarks:
+                if field and pattern:
+                    field_value = getattr(bookmark, field, '')
+                    if field == 'tags':
+                        if pattern in field_value:
+                            to_delete.append(bookmark.url)
+                    else:
+                        if pattern in str(field_value):
+                            to_delete.append(bookmark.url)
+            
+            for url in to_delete:
+                manager.remove_bookmark(url)
+                deleted_count += 1
+        else:
+            return jsonify({'error': 'Either urls or filter is required'}), 400
+        
+        # 保存更改
+        storage.save_bookmarks(manager.get_bookmarks())
+    
+    return jsonify({
+        'message': f'Batch delete completed',
+        'deleted': deleted_count,
+        'remaining': len(manager.get_bookmarks())
+    }), 200
+
+
+@app.route(f'{API_PREFIX}/bookmarks/deduplicate', methods=['POST'])
+def deduplicate_bookmarks():
+    """去重书签（根据 URL）
+    
+    Returns:
+        去重统计信息
+    """
+    with bookmarks_lock:
+        bookmarks = manager.get_bookmarks()
+        original_count = len(bookmarks)
+        
+        # 使用字典去重（保留第一个）
+        seen_urls = {}
+        unique_bookmarks = []
+        
+        for bookmark in bookmarks:
+            if bookmark.url not in seen_urls:
+                seen_urls[bookmark.url] = True
+                unique_bookmarks.append(bookmark)
+        
+        duplicate_count = original_count - len(unique_bookmarks)
+        
+        if duplicate_count > 0:
+            # 更新书签列表
+            manager.bookmarks = unique_bookmarks
+            storage.save_bookmarks(manager.get_bookmarks())
+    
+    return jsonify({
+        'message': 'Deduplication completed',
+        'original_count': original_count,
+        'duplicate_count': duplicate_count,
+        'current_count': len(manager.get_bookmarks())
+    }), 200
+
+
+@app.route(f'{API_PREFIX}/bookmarks/stats', methods=['GET'])
+def get_bookmarks_stats():
+    """获取书签统计信息
+    
+    Returns:
+        统计信息（总数、分类分布、标签分布等）
+    """
+    with bookmarks_lock:
+        bookmarks = manager.get_bookmarks()
+        
+        # 基础统计
+        total = len(bookmarks)
+        
+        # 分类统计
+        category_stats = {}
+        for b in bookmarks:
+            cat = b.category or '未分类'
+            category_stats[cat] = category_stats.get(cat, 0) + 1
+        
+        # 标签统计
+        tag_stats = {}
+        for b in bookmarks:
+            for tag in b.tags:
+                tag_stats[tag] = tag_stats.get(tag, 0) + 1
+        
+        # 无标签的书签
+        untagged = len([b for b in bookmarks if not b.tags])
+        
+        # 无分类的书签
+        uncategorized = len([b for b in bookmarks if not b.category])
+    
+    return jsonify({
+        'total': total,
+        'categories': {
+            'count': len(category_stats),
+            'distribution': category_stats
+        },
+        'tags': {
+            'count': len(tag_stats),
+            'top_tags': sorted(tag_stats.items(), key=lambda x: x[1], reverse=True)[:10]
+        },
+        'issues': {
+            'untagged': untagged,
+            'uncategorized': uncategorized
+        }
+    }), 200
 
 
 if __name__ == '__main__':

@@ -384,6 +384,13 @@ pytest --cov=app --cov-report=html
 49. ✅ **事务机制** - Storage 类添加线程级文件锁
 50. ✅ **时区处理** - 时间戳统一使用 UTC 时区
 
+### 第九轮修复 - 洗数据能力
+51. ✅ **数据导出** - 添加 `/v1/bookmarks/export`，支持 JSON/CSV/HTML 格式
+52. ✅ **批量更新** - 添加 `/v1/bookmarks/batch-update`，支持条件匹配和批量修改
+53. ✅ **批量删除** - 添加 `/v1/bookmarks/batch-delete`，支持条件删除和 URL 列表删除
+54. ✅ **数据去重** - 添加 `/v1/bookmarks/deduplicate`，根据 URL 去重
+55. ✅ **统计分析** - 添加 `/v1/bookmarks/stats`，提供分类、标签、问题统计
+
 ## 待完成
 
 1. 项目没有配置正式的测试框架
