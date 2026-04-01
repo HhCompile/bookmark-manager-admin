@@ -10,7 +10,6 @@ import json
 import logging
 import threading
 import uuid
-import tempfile
 import atexit
 import time
 from logging.handlers import RotatingFileHandler
@@ -197,9 +196,9 @@ def add_bookmark():
         return jsonify({'error': 'Invalid URL format'}), 400
     
     # 验证和清理输入数据
-    title = _sanitize_string(data.get('title', ''), max_length=200)
+    title = _sanitize_string(data.get('title', ''), max_length=Constants.MAX_TITLE_LENGTH)
     tags = _sanitize_tags(data.get('tags', []))
-    category = _sanitize_string(data.get('category'), max_length=50) if data.get('category') else None
+    category = _sanitize_string(data.get('category'), max_length=Constants.MAX_CATEGORY_LENGTH) if data.get('category') else None
     
     with bookmarks_lock:
         # 检查重复
@@ -294,8 +293,8 @@ def add_bookmarks_batch():
         return jsonify({'error': 'Bookmarks must be an array'}), 400
     
     # 限制批量处理数量（防止过大请求）
-    if len(bookmarks_list) > 1000:
-        return jsonify({'error': 'Too many bookmarks. Maximum is 1000 per request'}), 400
+    if len(bookmarks_list) > Constants.MAX_BOOKMARKS_PER_BATCH:
+        return jsonify({'error': f'Too many bookmarks. Maximum is {Constants.MAX_BOOKMARKS_PER_BATCH} per request'}), 400
     
     processed_bookmarks = []
     skipped_count = 0
@@ -337,7 +336,7 @@ def get_bookmarks():
     
     # 限制分页范围
     page = max(1, page)
-    limit = max(1, min(limit, 100))  # 限制最大100
+    limit = max(1, min(limit, Constants.MAX_PAGE_SIZE))  # 限制最大页大小
     
     # 获取筛选参数
     filter_category = request.args.get('category')
@@ -449,11 +448,11 @@ def update_bookmark():
         
         # 更新书签属性（使用清理函数）
         if 'title' in data:
-            bookmark.title = _sanitize_string(data['title'], max_length=200)
+            bookmark.title = _sanitize_string(data['title'], max_length=Constants.MAX_TITLE_LENGTH)
         if 'tags' in data:
             bookmark.tags = _sanitize_tags(data['tags'])
         if 'category' in data:
-            bookmark.category = _sanitize_string(data['category'], max_length=50) if data['category'] else None
+            bookmark.category = _sanitize_string(data['category'], max_length=Constants.MAX_CATEGORY_LENGTH) if data['category'] else None
         
         # 如果需要重新处理分类和标签
         if data.get('reprocess', False):
@@ -580,8 +579,9 @@ def parse_bookmarks():
                     'parsed_count': result['data']['bookmark_count'],
                     'parsed_data': parsed_data
                 }), 201
-            except Exception as e:
-                return jsonify({'error': f'Failed to read parsed data: {str(e)}'}), 500
+            except Exception:
+                logger.exception('Failed to read parsed data')
+                return jsonify({'error': 'Failed to read parsed data'}), 500
         else:
             return jsonify({'error': result['message']}), 500
     finally:
@@ -626,9 +626,9 @@ def analyze_bookmarks():
             }), 200
         else:
             return jsonify({'error': result['message']}), 500
-    except Exception as e:
-        logger.error(f'Analysis failed: {e}')
-        return jsonify({'error': f'Failed to analyze bookmarks: {str(e)}'}), 500
+    except Exception:
+        logger.exception('Analysis failed')
+        return jsonify({'error': 'Failed to analyze bookmarks'}), 500
     finally:
         # 确保临时文件被清理
         for path in [temp_input, temp_output]:
@@ -689,9 +689,9 @@ def process_bookmarks():
             'suggestions': suggestions
         }), 201
         
-    except Exception as e:
-        logger.error(f'Processing failed: {e}')
-        return jsonify({'error': f'Failed to process bookmarks: {str(e)}'}), 500
+    except Exception:
+        logger.exception('Processing failed')
+        return jsonify({'error': 'Failed to process bookmarks'}), 500
     finally:
         # 确保所有临时文件被清理
         for path in [file_path, parsed_path, suggestions_path]:
@@ -743,12 +743,15 @@ def _sanitize_tags(tags):
     """
     if not isinstance(tags, list):
         return []
+    # 限制标签数量
+    if len(tags) > Constants.MAX_TAG_COUNT:
+        tags = tags[:Constants.MAX_TAG_COUNT]
     # 过滤非字符串元素，清理并去重
     result = []
     seen = set()
     for tag in tags:
         if isinstance(tag, str):
-            cleaned = tag.strip()[:50]  # 限制单个标签长度
+            cleaned = tag.strip()[:Constants.MAX_TAG_LENGTH]  # 限制单个标签长度
             if cleaned and cleaned not in seen:
                 result.append(cleaned)
                 seen.add(cleaned)
@@ -767,6 +770,23 @@ def _save_on_exit():
 
 # 注册退出处理器
 atexit.register(_save_on_exit)
+
+
+# 常量定义
+class Constants:
+    """API 常量定义"""
+    # 批量处理限制
+    MAX_BOOKMARKS_PER_BATCH = 1000
+    
+    # 分页限制
+    DEFAULT_PAGE_SIZE = 20
+    MAX_PAGE_SIZE = 100
+    
+    # 字符串长度限制
+    MAX_TITLE_LENGTH = 200
+    MAX_TAG_LENGTH = 50
+    MAX_CATEGORY_LENGTH = 50
+    MAX_TAG_COUNT = 100
 
 
 if __name__ == '__main__':
