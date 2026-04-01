@@ -8,6 +8,7 @@
 2. 自动备份机制（写入前先备份原文件）
 3. 原子写入（使用临时文件 + 重命名）
 4. 限制备份文件数量
+5. 文件锁保证并发安全
 """
 
 import os
@@ -15,6 +16,8 @@ import sys
 import json
 import shutil
 import glob
+import fcntl
+import threading
 from datetime import datetime
 from app.models.bookmark import Bookmark
 
@@ -26,44 +29,48 @@ from app.config import config
 class Storage:
     """存储服务，负责书签数据的持久化"""
     
+    _instance_lock = threading.Lock()
+    _file_lock = threading.Lock()
+    
     def __init__(self, file_path=None):
         self.file_path = file_path or config.DATA_FILE
         self.max_backup_count = config.MAX_BACKUP_COUNT
         
     def save_bookmarks(self, bookmarks):
-        """保存书签到文件（原子写入 + 备份）
+        """保存书签到文件（原子写入 + 备份 + 文件锁）
         
         Args:
             bookmarks: Bookmark 对象列表
         """
-        # 构建数据
-        data = []
-        for bookmark in bookmarks:
-            data.append({
-                'url': bookmark.url,
-                'title': bookmark.title,
-                'tags': bookmark.tags,
-                'category': bookmark.category
-            })
-        
-        # 如果原文件存在，先创建备份
-        if os.path.exists(self.file_path):
-            self._create_backup()
-            self._cleanup_old_backups()
-        
-        # 使用临时文件 + 重命名的方式实现原子写入
-        temp_file = self.file_path + '.tmp'
-        try:
-            with open(temp_file, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+        with Storage._file_lock:
+            # 构建数据
+            data = []
+            for bookmark in bookmarks:
+                data.append({
+                    'url': bookmark.url,
+                    'title': bookmark.title,
+                    'tags': bookmark.tags,
+                    'category': bookmark.category
+                })
             
-            # 原子重命名
-            os.replace(temp_file, self.file_path)
-        except Exception:
-            # 如果失败，清理临时文件
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
-            raise
+            # 如果原文件存在，先创建备份
+            if os.path.exists(self.file_path):
+                self._create_backup()
+                self._cleanup_old_backups()
+            
+            # 使用临时文件 + 重命名的方式实现原子写入
+            temp_file = self.file_path + '.tmp'
+            try:
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                
+                # 原子重命名
+                os.replace(temp_file, self.file_path)
+            except Exception:
+                # 如果失败，清理临时文件
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                raise
             
     def _create_backup(self):
         """创建带时间戳的备份文件"""

@@ -12,11 +12,17 @@ import threading
 import uuid
 import atexit
 import time
+import psutil
+import fcntl
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.utils import secure_filename
 from bs4 import BeautifulSoup
+import pytz
 
 # 将项目根目录添加到 Python 路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -69,8 +75,31 @@ CORS(app, resources={
     r"/v1/*": {"origins": config.CORS_ORIGINS},
 })
 
+# 配置限流器
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["1000 per hour", "100 per minute"],
+    storage_uri="memory://",
+)
+
 # 确保上传文件夹存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# 审计日志
+audit_logger = logging.getLogger('audit')
+audit_logger.setLevel(logging.INFO)
+if config.LOG_FILE:
+    audit_handler = RotatingFileHandler(
+        config.LOG_FILE.replace('.log', '_audit.log'),
+        maxBytes=config.LOG_MAX_BYTES,
+        backupCount=config.LOG_BACKUP_COUNT,
+        encoding='utf-8'
+    )
+    audit_handler.setFormatter(logging.Formatter(
+        '%(asctime)s - %(message)s'
+    ))
+    audit_logger.addHandler(audit_handler)
 
 # ==================== 请求追踪中间件 ====================
 @app.before_request
@@ -155,25 +184,47 @@ def parse_and_process_bookmarks(file_path):
         return 0
 
 @app.route(f'{API_PREFIX}/health', methods=['GET'])
+@limiter.exempt  # 健康检查不受限流限制
 def health_check():
     """健康检查接口
     
-    返回应用状态、书签数量、存储状态等信息
+    返回应用状态、书签数量、存储状态、系统资源等信息
     """
     with bookmarks_lock:
         bookmark_count = len(manager.get_bookmarks())
     
     # 检查存储文件状态
-    storage_exists = os.path.exists('bookmarks.json')
-    storage_size = os.path.getsize('bookmarks.json') if storage_exists else 0
+    storage_exists = os.path.exists(config.DATA_FILE)
+    storage_size = os.path.getsize(config.DATA_FILE) if storage_exists else 0
+    
+    # 检查磁盘空间
+    disk = psutil.disk_usage(os.path.dirname(config.DATA_FILE) or '.')
+    disk_free_percent = (disk.free / disk.total) * 100
+    
+    # 检查内存使用
+    memory = psutil.virtual_memory()
     
     return jsonify({
         'status': 'ok',
-        'version': '1.0.0',
+        'version': config.APP_VERSION,
+        'api_version': config.API_VERSION,
         'bookmarks': {
             'count': bookmark_count,
             'storage_exists': storage_exists,
             'storage_size_bytes': storage_size
+        },
+        'system': {
+            'disk': {
+                'total_gb': round(disk.total / (1024**3), 2),
+                'free_gb': round(disk.free / (1024**3), 2),
+                'free_percent': round(disk_free_percent, 2),
+                'healthy': disk_free_percent > 10  # 磁盘空间低于10%为不健康
+            },
+            'memory': {
+                'total_gb': round(memory.total / (1024**3), 2),
+                'available_gb': round(memory.available / (1024**3), 2),
+                'percent': memory.percent
+            }
         },
         'config': {
             'upload_folder': app.config['UPLOAD_FOLDER'],

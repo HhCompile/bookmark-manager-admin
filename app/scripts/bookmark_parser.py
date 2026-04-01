@@ -44,6 +44,7 @@ import logging
 from datetime import datetime
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any
+import pytz
 
 # 将项目根目录添加到 Python 路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -53,6 +54,9 @@ from app.scripts.interface import ScriptInterface
 
 # 获取日志记录器
 logger = logging.getLogger('parser')
+
+# 默认时区（UTC）
+DEFAULT_TIMEZONE = pytz.UTC
 
 
 class BookmarkParser(ScriptInterface):
@@ -319,21 +323,21 @@ class BookmarkParser(ScriptInterface):
 
     def parse_timestamp(self, timestamp_str):
         """
-        解析时间戳字符串
+        解析时间戳字符串为带时区的ISO格式
         
         Args:
             timestamp_str (str): 时间戳字符串
         
         Returns:
-            str: 格式化后的时间字符串，或空字符串
+            str: 带时区的ISO格式时间字符串，或空字符串
         """
         if not timestamp_str:
             return ''
         
         try:
-            # 将Unix时间戳转换为ISO格式
+            # 将Unix时间戳转换为带时区的datetime
             timestamp = int(timestamp_str)
-            dt = datetime.fromtimestamp(timestamp)
+            dt = datetime.fromtimestamp(timestamp, tz=DEFAULT_TIMEZONE)
             return dt.isoformat()
         except ValueError:
             logger.warning(f"无效的时间戳: {timestamp_str}")
