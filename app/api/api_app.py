@@ -28,9 +28,15 @@ import pytz
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.models.bookmark import Bookmark
+from app.models.folder import Folder
+from app.models.bookmark_metadata import BookmarkMetadata
+from app.models.tag import Tag
 from app.controllers.bookmark_controller import BookmarkManager
+from app.controllers.folder_controller import FolderManager
+from app.controllers.metadata_controller import MetadataManager
 from app.services.storage_service import Storage
 from app.services.classifier_service import Classifier
+from app.services.tag_manager import TagManager, TagExistsError, TagNotFoundError
 from app.utils.script_manager import script_manager
 from app.utils.serializers import bookmark_to_dict, bookmarks_to_dict_list
 from app.config import config
@@ -133,29 +139,92 @@ bookmarks_lock = threading.Lock()
 
 # ==================== 初始化组件 ====================
 manager = BookmarkManager()
+folder_manager = FolderManager()
+metadata_manager = MetadataManager()
 classifier = Classifier()
+tag_manager = TagManager()  # 标签管理器
 storage = Storage(config.DATA_FILE)
+folder_storage = Storage('folders.json')  # 文件夹独立存储
+metadata_storage = Storage('metadata.json')  # 元数据独立存储
 
 # 在启动时加载已有书签
 manager.bookmarks = storage.load_bookmarks()
-logger.info(f"应用启动（版本 {config.APP_VERSION}），已加载 {len(manager.bookmarks)} 个书签")
+# 加载文件夹
+loaded_folders = folder_storage.load_bookmarks()
+if loaded_folders:
+    folder_manager.folders = loaded_folders
+# 加载元数据
+loaded_metadata = metadata_storage.load_bookmarks()
+if loaded_metadata:
+    metadata_manager.load_from_dict_list(loaded_metadata)
+# 从现有书签初始化标签统计
+def _init_tag_stats():
+    """从现有书签统计标签使用情况"""
+    tag_counts = {}
+    for bookmark in manager.get_bookmarks():
+        for tag_name in bookmark.tags:
+            tag_counts[tag_name] = tag_counts.get(tag_name, 0) + 1
+    
+    # 为存在的标签创建定义（如果不存在）
+    for tag_name, count in tag_counts.items():
+        try:
+            tag, created = tag_manager.get_or_create(tag_name)
+            if not created:
+                # 更新使用计数
+                for _ in range(count - tag.usage_count):
+                    tag_manager.increment_usage(tag.id)
+        except Exception as e:
+            logger.warning(f'初始化标签统计失败 {tag_name}: {e}')
+
+_init_tag_stats()
+
+tag_stats = tag_manager.get_stats()
+logger.info(f"应用启动（版本 {config.APP_VERSION}），已加载 {len(manager.bookmarks)} 个书签，{len(folder_manager.folders)} 个文件夹，{len(metadata_manager.metadata)} 个元数据，{tag_stats['total']} 个标签")
 
 def parse_and_process_bookmarks(file_path):
     """解析并处理书签文件（线程安全）"""
+    logger.info(f"[Upload] 开始解析书签文件: {file_path}")
+    
     try:
+        # 读取文件
         with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        soup = BeautifulSoup(content, 'lxml')
-        bookmarks = []
+        file_size = len(content)
+        logger.info(f"[Upload] 文件读取成功，大小: {file_size} 字符")
         
-        # 查找所有书签链接
+        # 解析 HTML
+        soup = BeautifulSoup(content, 'lxml')
         links = soup.find_all('a', href=True)
+        total_links = len(links)
+        
+        logger.info(f"[Upload] HTML 解析完成，找到 {total_links} 个链接")
+        
+        bookmarks = []
+        duplicate_count = 0
+        invalid_count = 0
         
         with bookmarks_lock:
-            for link in links:
+            logger.info(f"[Upload] 开始处理书签，当前已有 {len(manager.get_bookmarks())} 个书签")
+            
+            for idx, link in enumerate(links, 1):
                 url = link['href']
                 title = link.get_text(strip=True)
+                
+                # 每 10 个记录一次进度
+                if idx % 10 == 0:
+                    logger.info(f"[Upload] 处理进度: {idx}/{total_links} ({idx*100//total_links}%)")
+                
+                # 验证 URL
+                if not url or not url.startswith(('http://', 'https://')):
+                    invalid_count += 1
+                    logger.debug(f"[Upload] 跳过无效 URL: {url}")
+                    continue
+                
+                # 检查重复
+                if manager.has_bookmark(url):
+                    duplicate_count += 1
+                    continue
                 
                 # 创建书签对象
                 bookmark = Bookmark(
@@ -166,21 +235,34 @@ def parse_and_process_bookmarks(file_path):
                 )
                 
                 # 自动打标和分类
-                classifier.tag_bookmark(bookmark)
-                classifier.classify_bookmark(bookmark)
+                try:
+                    classifier.tag_bookmark(bookmark)
+                    classifier.classify_bookmark(bookmark)
+                except Exception as e:
+                    logger.warning(f"[Upload] 分类/标签处理失败: {e}")
                 
-                # 添加到管理器（自动检查重复）
-                if not manager.has_bookmark(url):
-                    manager.add_bookmark(bookmark)
-                    bookmarks.append(bookmark)
+                # 添加到管理器
+                manager.add_bookmark(bookmark)
+                bookmarks.append(bookmark)
             
             # 保存到文件
-            storage.save_bookmarks(manager.get_bookmarks())
+            if bookmarks:
+                logger.info(f"[Upload] 保存 {len(bookmarks)} 个新书签到文件...")
+                storage.save_bookmarks(manager.get_bookmarks())
+            
+            total_after = len(manager.get_bookmarks())
         
-        logger.info(f"成功处理 {len(bookmarks)} 个书签")
+        # 记录详细结果
+        logger.info(f"[Upload] 处理完成!")
+        logger.info(f"[Upload] - 总链接数: {total_links}")
+        logger.info(f"[Upload] - 新增书签: {len(bookmarks)}")
+        logger.info(f"[Upload] - 重复跳过: {duplicate_count}")
+        logger.info(f"[Upload] - 无效 URL: {invalid_count}")
+        logger.info(f"[Upload] - 书签总数: {total_after}")
+        
         return len(bookmarks)
     except Exception as e:
-        logger.error(f"处理书签文件出错: {e}")
+        logger.exception(f"[Upload] 处理书签文件出错: {e}")
         return 0
 
 @app.route(f'{API_PREFIX}/health', methods=['GET'])
@@ -188,14 +270,19 @@ def parse_and_process_bookmarks(file_path):
 def health_check():
     """健康检查接口
     
-    返回应用状态、书签数量、存储状态、系统资源等信息
+    返回应用状态、书签数量、元数据数量、存储状态、系统资源等信息
     """
     with bookmarks_lock:
         bookmark_count = len(manager.get_bookmarks())
+        folder_count = len(folder_manager.folders)
+        metadata_count = len(metadata_manager.metadata)
     
     # 检查存储文件状态
     storage_exists = os.path.exists(config.DATA_FILE)
     storage_size = os.path.getsize(config.DATA_FILE) if storage_exists else 0
+    
+    metadata_exists = os.path.exists('metadata.json')
+    metadata_size = os.path.getsize('metadata.json') if metadata_exists else 0
     
     # 检查磁盘空间
     disk = psutil.disk_usage(os.path.dirname(config.DATA_FILE) or '.')
@@ -212,6 +299,14 @@ def health_check():
             'count': bookmark_count,
             'storage_exists': storage_exists,
             'storage_size_bytes': storage_size
+        },
+        'folders': {
+            'count': folder_count
+        },
+        'metadata': {
+            'count': metadata_count,
+            'storage_exists': metadata_exists,
+            'storage_size_bytes': metadata_size
         },
         'system': {
             'disk': {
@@ -234,7 +329,20 @@ def health_check():
 
 @app.route(f'{API_PREFIX}/bookmark', methods=['POST'])
 def add_bookmark():
-    """添加单个书签并自动处理（线程安全）"""
+    """添加单个书签并自动处理（线程安全）
+    
+    Request Body:
+        url: 书签URL（必需）
+        title: 标题（可选）
+        tags: 标签（可选）
+        category: 分类（可选）
+        # 元数据字段
+        alias: 别名（可选）
+        folder_id: 文件夹ID（可选）
+        notes: 备注（可选）
+        custom_tags: 自定义标签（可选）
+        is_favorite: 是否收藏（可选）
+    """
     data = request.get_json()
     
     if not data or 'url' not in data:
@@ -274,21 +382,65 @@ def add_bookmark():
         # 添加到管理器
         manager.add_bookmark(bookmark)
         
+        # 处理元数据
+        metadata_fields = {}
+        if 'alias' in data and data['alias']:
+            metadata_fields['alias'] = _sanitize_string(data['alias'], max_length=200)
+        if 'folder_id' in data and data['folder_id']:
+            metadata_fields['folder_id'] = data['folder_id']
+        if 'notes' in data and data['notes']:
+            metadata_fields['notes'] = _sanitize_string(data['notes'], max_length=1000)
+        if 'custom_tags' in data and data['custom_tags']:
+            metadata_fields['custom_tags'] = _sanitize_tags(data['custom_tags'])
+        if 'is_favorite' in data:
+            metadata_fields['is_favorite'] = bool(data['is_favorite'])
+        
+        if metadata_fields:
+            metadata_manager.set_metadata(url, **metadata_fields)
+        
         # 保存到文件
         storage.save_bookmarks(manager.get_bookmarks())
+        if metadata_fields:
+            metadata_storage.save_bookmarks(metadata_manager.to_dict_list())
     
     return jsonify({
         'message': 'Bookmark processed successfully',
-        'bookmark': bookmark_to_dict(bookmark)
+        'bookmark': _merge_bookmark_with_metadata(bookmark)
     }), 201
 
-def _process_bookmark_item(item, manager, classifier):
+def _merge_bookmark_with_metadata(bookmark):
+    """合并书签内容和元数据
+    
+    Args:
+        bookmark: Bookmark对象
+        
+    Returns:
+        dict: 包含内容和元数据的完整书签字典
+    """
+    # 获取基础书签数据
+    result = bookmark_to_dict(bookmark)
+    
+    # 获取并合并元数据
+    metadata = metadata_manager.get_metadata(bookmark.url)
+    if metadata:
+        result['metadata'] = metadata.to_dict()
+    else:
+        # 返回空元数据
+        result['metadata'] = BookmarkMetadata(
+            url_hash=MetadataManager.hash_url(bookmark.url)
+        ).to_dict()
+    
+    return result
+
+
+def _process_bookmark_item(item, manager, classifier, metadata_mgr=None):
     """处理单个书签条目（内部函数，不持有锁）
     
     Args:
         item: 书签数据字典
         manager: BookmarkManager 实例
         classifier: Classifier 实例
+        metadata_mgr: MetadataManager 实例（可选，用于存储元数据）
         
     Returns:
         tuple: (success: bool, result: dict or None)
@@ -312,7 +464,7 @@ def _process_bookmark_item(item, manager, classifier):
     tags = _sanitize_tags(item.get('tags', []))
     category = _sanitize_string(item.get('category'), max_length=50) if item.get('category') else None
     
-    # 创建书签对象
+    # 创建书签对象（内容数据）
     bookmark = Bookmark(
         url=url,
         title=title,
@@ -327,6 +479,23 @@ def _process_bookmark_item(item, manager, classifier):
     # 添加到管理器
     manager.add_bookmark(bookmark)
     
+    # 处理元数据（如果提供且metadata_manager可用）
+    if metadata_mgr:
+        metadata_fields = {}
+        if 'alias' in item and item['alias']:
+            metadata_fields['alias'] = _sanitize_string(item['alias'], max_length=200)
+        if 'folder_id' in item and item['folder_id']:
+            metadata_fields['folder_id'] = item['folder_id']
+        if 'notes' in item and item['notes']:
+            metadata_fields['notes'] = _sanitize_string(item['notes'], max_length=1000)
+        if 'custom_tags' in item and item['custom_tags']:
+            metadata_fields['custom_tags'] = _sanitize_tags(item['custom_tags'])
+        if 'is_favorite' in item:
+            metadata_fields['is_favorite'] = bool(item['is_favorite'])
+        
+        if metadata_fields:
+            metadata_mgr.set_metadata(url, **metadata_fields)
+    
     return True, bookmark_to_dict(bookmark)
 
 
@@ -336,30 +505,75 @@ def add_bookmarks_batch():
     data = request.get_json()
     
     if not data or 'bookmarks' not in data:
+        logger.warning(f"[API /bookmarks/batch] 请求缺少 bookmarks 字段")
         return jsonify({'error': 'Bookmarks array is required'}), 400
     
     # 验证 bookmarks 是列表类型
     bookmarks_list = data['bookmarks']
     if not isinstance(bookmarks_list, list):
+        logger.warning(f"[API /bookmarks/batch] bookmarks 不是数组类型")
         return jsonify({'error': 'Bookmarks must be an array'}), 400
     
+    total = len(bookmarks_list)
+    logger.info(f"[API /bookmarks/batch] 收到批量添加请求，共 {total} 个书签")
+    
     # 限制批量处理数量（防止过大请求）
-    if len(bookmarks_list) > Constants.MAX_BOOKMARKS_PER_BATCH:
+    if total > Constants.MAX_BOOKMARKS_PER_BATCH:
+        logger.warning(f"[API /bookmarks/batch] 超出批量限制: {total} > {Constants.MAX_BOOKMARKS_PER_BATCH}")
         return jsonify({'error': f'Too many bookmarks. Maximum is {Constants.MAX_BOOKMARKS_PER_BATCH} per request'}), 400
     
     processed_bookmarks = []
     skipped_count = 0
+    invalid_count = 0
     
     with bookmarks_lock:
-        for item in bookmarks_list:
-            success, result = _process_bookmark_item(item, manager, classifier)
+        logger.info(f"[API /bookmarks/batch] 开始处理，当前书签数: {len(manager.get_bookmarks())}")
+        
+        for idx, item in enumerate(bookmarks_list, 1):
+            # 每 20 个记录一次进度
+            if idx % 20 == 0 or idx == total:
+                logger.info(f"[API /bookmarks/batch] 处理进度: {idx}/{total} ({idx*100//total}%)")
+            
+            # 验证条目类型
+            if not isinstance(item, dict):
+                invalid_count += 1
+                continue
+            
+            url = item.get('url', '')
+            
+            # 验证 URL
+            if not url or not _is_valid_url(url):
+                invalid_count += 1
+                logger.debug(f"[API /bookmarks/batch] 无效 URL 跳过: {url}")
+                continue
+            
+            # 检查重复
+            if manager.has_bookmark(url):
+                skipped_count += 1
+                continue
+            
+            # 处理书签（传入metadata_manager以存储元数据）
+            success, result = _process_bookmark_item(item, manager, classifier, metadata_manager)
             if success:
                 processed_bookmarks.append(result)
             else:
                 skipped_count += 1
         
         # 保存到文件
-        storage.save_bookmarks(manager.get_bookmarks())
+        if processed_bookmarks:
+            logger.info(f"[API /bookmarks/batch] 保存 {len(processed_bookmarks)} 个新书签到文件...")
+            storage.save_bookmarks(manager.get_bookmarks())
+            # 保存元数据
+            metadata_storage.save_bookmarks(metadata_manager.to_dict_list())
+        
+        total_after = len(manager.get_bookmarks())
+    
+    logger.info(f"[API /bookmarks/batch] 处理完成!")
+    logger.info(f"[API /bookmarks/batch] - 请求数量: {total}")
+    logger.info(f"[API /bookmarks/batch] - 成功添加: {len(processed_bookmarks)}")
+    logger.info(f"[API /bookmarks/batch] - 重复跳过: {skipped_count}")
+    logger.info(f"[API /bookmarks/batch] - 无效数据: {invalid_count}")
+    logger.info(f"[API /bookmarks/batch] - 当前总数: {total_after}")
     
     return jsonify({
         'message': f'Successfully processed {len(processed_bookmarks)} bookmarks, skipped {skipped_count}',
@@ -370,13 +584,14 @@ def add_bookmarks_batch():
 
 @app.route(f'{API_PREFIX}/bookmarks', methods=['GET'])
 def get_bookmarks():
-    """获取所有书签（支持分页）
+    """获取所有书签（支持分页，自动合并元数据）
     
     Query Parameters:
         page: 页码（从1开始，默认1）
         limit: 每页数量（默认20，最大100）
         category: 按分类筛选
         tag: 按标签筛选
+        include_metadata: 是否包含元数据（默认true）
     """
     # 获取分页参数
     try:
@@ -392,6 +607,7 @@ def get_bookmarks():
     # 获取筛选参数
     filter_category = request.args.get('category')
     filter_tag = request.args.get('tag')
+    include_metadata = request.args.get('include_metadata', 'true').lower() == 'true'
     
     with bookmarks_lock:
         bookmarks = manager.get_bookmarks()
@@ -409,8 +625,11 @@ def get_bookmarks():
         end = start + limit
         paginated_bookmarks = bookmarks[start:end]
         
-        # 使用序列化工具转换
-        result = bookmarks_to_dict_list(paginated_bookmarks)
+        # 转换并合并元数据
+        if include_metadata:
+            result = [_merge_bookmark_with_metadata(b) for b in paginated_bookmarks]
+        else:
+            result = bookmarks_to_dict_list(paginated_bookmarks)
     
     return jsonify({
         'bookmarks': result,
@@ -443,6 +662,8 @@ def get_bookmarks_by_tag(tag):
 def delete_bookmark():
     """根据URL删除书签（使用POST请求体，避免URL编码问题）
     
+    删除书签时会同时删除其元数据
+    
     Request Body:
         url: 要删除的书签URL
     """
@@ -457,8 +678,12 @@ def delete_bookmark():
         original_count = len(manager.get_bookmarks())
         manager.remove_bookmark(url)
         
+        # 同时删除元数据
+        metadata_manager.delete_metadata(url)
+        
         # 保存到文件
         storage.save_bookmarks(manager.get_bookmarks())
+        metadata_storage.save_bookmarks(metadata_manager.to_dict_list())
         
         new_count = len(manager.get_bookmarks())
         
@@ -473,10 +698,16 @@ def update_bookmark():
     
     Request Body:
         url: 要更新的书签URL（必需）
-        title: 新标题（可选）
-        tags: 新标签（可选）
-        category: 新分类（可选）
+        title: 新标题（可选，内容数据）
+        tags: 新标签（可选，内容数据）
+        category: 新分类（可选，内容数据）
         reprocess: 是否重新自动分类（可选）
+        # 元数据字段
+        alias: 别名（可选，元数据）
+        folder_id: 文件夹ID（可选，元数据）
+        notes: 备注（可选，元数据）
+        custom_tags: 自定义标签（可选，元数据）
+        is_favorite: 是否收藏（可选，元数据）
     """
     data = request.get_json()
     
@@ -484,6 +715,7 @@ def update_bookmark():
         return jsonify({'error': 'URL is required in request body'}), 400
     
     url = data['url']
+    metadata_updated = False
     
     with bookmarks_lock:
         # 查找现有书签
@@ -497,7 +729,7 @@ def update_bookmark():
         if not bookmark:
             return jsonify({'error': 'Bookmark not found', 'url': url}), 404
         
-        # 更新书签属性（使用清理函数）
+        # 更新书签属性（使用清理函数）- 内容数据
         if 'title' in data:
             bookmark.title = _sanitize_string(data['title'], max_length=Constants.MAX_TITLE_LENGTH)
         if 'tags' in data:
@@ -510,17 +742,31 @@ def update_bookmark():
             classifier.tag_bookmark(bookmark)
             classifier.classify_bookmark(bookmark)
         
+        # 处理元数据更新
+        metadata_fields = {}
+        if 'alias' in data:
+            metadata_fields['alias'] = _sanitize_string(data['alias'], max_length=200) if data['alias'] else None
+        if 'folder_id' in data:
+            metadata_fields['folder_id'] = data['folder_id']
+        if 'notes' in data:
+            metadata_fields['notes'] = _sanitize_string(data['notes'], max_length=1000) if data['notes'] else None
+        if 'custom_tags' in data:
+            metadata_fields['custom_tags'] = _sanitize_tags(data['custom_tags'])
+        if 'is_favorite' in data:
+            metadata_fields['is_favorite'] = bool(data['is_favorite'])
+        
+        if metadata_fields:
+            metadata_manager.set_metadata(url, **metadata_fields)
+            metadata_updated = True
+        
         # 保存到文件
         storage.save_bookmarks(manager.get_bookmarks())
+        if metadata_updated:
+            metadata_storage.save_bookmarks(metadata_manager.to_dict_list())
     
     return jsonify({
         'message': 'Bookmark updated successfully',
-        'bookmark': {
-            'url': bookmark.url,
-            'title': bookmark.title,
-            'tags': bookmark.tags,
-            'category': bookmark.category
-        }
+        'bookmark': _merge_bookmark_with_metadata(bookmark)
     }), 200
 
 @app.route(f'{API_PREFIX}/bookmark/upload', methods=['POST'])
@@ -1173,6 +1419,583 @@ def get_bookmarks_stats():
             'uncategorized': uncategorized
         }
     }), 200
+
+
+# ==================== 文件夹管理 API ====================
+
+@app.route(f'{API_PREFIX}/folders', methods=['GET'])
+def get_folders():
+    """获取所有文件夹
+    
+    Returns:
+        文件夹列表
+    """
+    folders = folder_manager.to_dict_list()
+    return jsonify(folders), 200
+
+
+@app.route(f'{API_PREFIX}/folders', methods=['POST'])
+def create_folder():
+    """创建文件夹
+    
+    Request Body:
+        name: 文件夹名称（必需）
+        parentId: 父文件夹ID（可选，默认为根目录）
+    """
+    data = request.get_json()
+    
+    if not data or 'name' not in data:
+        return jsonify({'error': 'Folder name is required'}), 400
+    
+    name = data['name'].strip()
+    parent_id = data.get('parentId')
+    
+    if not name:
+        return jsonify({'error': 'Folder name cannot be empty'}), 400
+    
+    # 检查父文件夹是否存在
+    if parent_id and not folder_manager.has_folder(parent_id):
+        return jsonify({'error': 'Parent folder not found'}), 404
+    
+    # 检查同名文件夹
+    if folder_manager.has_folder_by_name(name, parent_id):
+        return jsonify({'error': 'Folder with this name already exists'}), 409
+    
+    # 创建文件夹
+    folder = Folder(name=name, parent_id=parent_id)
+    folder_manager.add_folder(folder)
+    
+    # 保存到文件
+    folder_storage.save_bookmarks(folder_manager.folders)
+    
+    logger.info(f"创建文件夹: {folder.name} (ID: {folder.id})")
+    
+    return jsonify({
+        'message': 'Folder created successfully',
+        'folder': folder.to_dict()
+    }), 201
+
+
+@app.route(f'{API_PREFIX}/folders/update', methods=['POST'])
+def update_folder():
+    """更新文件夹
+    
+    Request Body:
+        id: 文件夹ID（必需）
+        name: 新名称（可选）
+        parentId: 新父文件夹ID（可选）
+    """
+    data = request.get_json()
+    
+    if not data or 'id' not in data:
+        return jsonify({'error': 'Folder ID is required'}), 400
+    
+    folder_id = data['id']
+    
+    # 检查文件夹是否存在
+    if not folder_manager.has_folder(folder_id):
+        return jsonify({'error': 'Folder not found'}), 404
+    
+    # 准备更新参数
+    update_kwargs = {}
+    if 'name' in data:
+        name = data['name'].strip()
+        if not name:
+            return jsonify({'error': 'Folder name cannot be empty'}), 400
+        # 检查新名称是否与其他文件夹冲突
+        folder = folder_manager.get_folder_by_id(folder_id)
+        if name != folder.name and folder_manager.has_folder_by_name(name, folder.parent_id):
+            return jsonify({'error': 'Folder with this name already exists in the same parent'}), 409
+        update_kwargs['name'] = name
+    
+    if 'parentId' in data:
+        new_parent_id = data['parentId']
+        # 检查目标父文件夹是否存在
+        if new_parent_id and not folder_manager.has_folder(new_parent_id):
+            return jsonify({'error': 'Target parent folder not found'}), 404
+        # 防止循环引用
+        if new_parent_id == folder_id:
+            return jsonify({'error': 'A folder cannot be its own parent'}), 400
+        update_kwargs['parent_id'] = new_parent_id
+    
+    # 更新文件夹
+    updated_folder = folder_manager.update_folder(folder_id, **update_kwargs)
+    
+    if updated_folder:
+        # 保存到文件
+        folder_storage.save_bookmarks(folder_manager.folders)
+        
+        logger.info(f"更新文件夹: {updated_folder.name} (ID: {updated_folder.id})")
+        
+        return jsonify({
+            'message': 'Folder updated successfully',
+            'folder': updated_folder.to_dict()
+        }), 200
+    else:
+        return jsonify({'error': 'Failed to update folder'}), 500
+
+
+@app.route(f'{API_PREFIX}/folders/delete', methods=['POST'])
+def delete_folder():
+    """删除文件夹
+    
+    Request Body:
+        id: 文件夹ID（必需）
+    """
+    data = request.get_json()
+    
+    if not data or 'id' not in data:
+        return jsonify({'error': 'Folder ID is required'}), 400
+    
+    folder_id = data['id']
+    
+    # 检查文件夹是否存在
+    if not folder_manager.has_folder(folder_id):
+        return jsonify({'error': 'Folder not found'}), 404
+    
+    # 获取文件夹信息用于日志
+    folder = folder_manager.get_folder_by_id(folder_id)
+    folder_name = folder.name if folder else 'Unknown'
+    
+    # 删除文件夹（会递归删除子文件夹）
+    success = folder_manager.remove_folder(folder_id)
+    
+    if success:
+        # 保存到文件
+        folder_storage.save_bookmarks(folder_manager.folders)
+        
+        logger.info(f"删除文件夹: {folder_name} (ID: {folder_id})")
+        
+        return jsonify({
+            'message': 'Folder deleted successfully',
+            'id': folder_id
+        }), 200
+    else:
+        return jsonify({'error': 'Failed to delete folder'}), 500
+
+
+# ==================== 元数据管理 API ====================
+
+@app.route(f'{API_PREFIX}/bookmark/<path:url>/metadata', methods=['GET'])
+def get_bookmark_metadata(url):
+    """获取书签的元数据
+    
+    Args:
+        url: 书签URL（URL编码）
+        
+    Returns:
+        书签的元数据，如果不存在则返回空对象
+    """
+    # URL解码
+    from urllib.parse import unquote
+    decoded_url = unquote(url)
+    
+    metadata = metadata_manager.get_metadata(decoded_url)
+    
+    if metadata:
+        return jsonify({
+            'url': decoded_url,
+            'metadata': metadata.to_dict()
+        }), 200
+    else:
+        # 返回默认空元数据
+        return jsonify({
+            'url': decoded_url,
+            'metadata': BookmarkMetadata(url_hash=MetadataManager.hash_url(decoded_url)).to_dict()
+        }), 200
+
+
+@app.route(f'{API_PREFIX}/bookmark/<path:url>/metadata', methods=['PUT'])
+def update_bookmark_metadata(url):
+    """更新书签的元数据
+    
+    Args:
+        url: 书签URL（URL编码）
+        
+    Request Body:
+        alias: 别名（可选）
+        folder_id: 文件夹ID（可选）
+        notes: 备注（可选）
+        custom_tags: 自定义标签列表（可选）
+        is_favorite: 是否收藏（可选）
+    """
+    from urllib.parse import unquote
+    decoded_url = unquote(url)
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Request body is required'}), 400
+    
+    # 检查书签是否存在
+    bookmark_exists = any(b.url == decoded_url for b in manager.bookmarks)
+    if not bookmark_exists:
+        return jsonify({'error': 'Bookmark not found'}), 404
+    
+    # 准备更新字段
+    update_fields = {}
+    if 'alias' in data:
+        update_fields['alias'] = data['alias']
+    if 'folder_id' in data:
+        update_fields['folder_id'] = data['folder_id']
+    if 'notes' in data:
+        update_fields['notes'] = data['notes']
+    if 'custom_tags' in data:
+        update_fields['custom_tags'] = data['custom_tags']
+    if 'is_favorite' in data:
+        update_fields['is_favorite'] = data['is_favorite']
+    
+    # 更新元数据
+    metadata = metadata_manager.set_metadata(decoded_url, **update_fields)
+    
+    # 保存元数据
+    metadata_storage.save_bookmarks(metadata_manager.to_dict_list())
+    
+    logger.info(f"更新书签元数据: {decoded_url[:50]}...")
+    
+    return jsonify({
+        'message': 'Metadata updated successfully',
+        'metadata': metadata.to_dict()
+    }), 200
+
+
+@app.route(f'{API_PREFIX}/bookmark/<path:url>/metadata', methods=['DELETE'])
+def delete_bookmark_metadata(url):
+    """删除书签的元数据
+    
+    Args:
+        url: 书签URL（URL编码）
+    """
+    from urllib.parse import unquote
+    decoded_url = unquote(url)
+    
+    success = metadata_manager.delete_metadata(decoded_url)
+    
+    if success:
+        # 保存元数据
+        metadata_storage.save_bookmarks(metadata_manager.to_dict_list())
+        
+        logger.info(f"删除书签元数据: {decoded_url[:50]}...")
+        
+        return jsonify({
+            'message': 'Metadata deleted successfully'
+        }), 200
+    else:
+        return jsonify({'error': 'Metadata not found'}), 404
+
+
+@app.route(f'{API_PREFIX}/metadata/by-folder/<folder_id>', methods=['GET'])
+def get_metadata_by_folder(folder_id):
+    """获取指定文件夹下的所有书签元数据
+    
+    Args:
+        folder_id: 文件夹ID
+    """
+    metadata_list = metadata_manager.get_by_folder(folder_id)
+    
+    return jsonify({
+        'folder_id': folder_id,
+        'count': len(metadata_list),
+        'metadata': [m.to_dict() for m in metadata_list]
+    }), 200
+
+
+@app.route(f'{API_PREFIX}/metadata/favorites', methods=['GET'])
+def get_favorite_metadata():
+    """获取所有收藏的书签元数据"""
+    metadata_list = metadata_manager.get_favorites()
+    
+    return jsonify({
+        'count': len(metadata_list),
+        'metadata': [m.to_dict() for m in metadata_list]
+    }), 200
+
+
+@app.route(f'{API_PREFIX}/bookmark/<path:url>/visit', methods=['POST'])
+def record_bookmark_visit(url):
+    """记录书签访问
+    
+    Args:
+        url: 书签URL（URL编码）
+        
+    Increments visit_count and updates last_visited timestamp
+    """
+    from urllib.parse import unquote
+    decoded_url = unquote(url)
+    
+    # 检查书签是否存在
+    bookmark_exists = any(b.url == decoded_url for b in manager.bookmarks)
+    if not bookmark_exists:
+        return jsonify({'error': 'Bookmark not found'}), 404
+    
+    # 获取或创建元数据
+    metadata = metadata_manager.get_or_create(decoded_url)
+    
+    # 更新访问记录
+    metadata.visit_count += 1
+    metadata.last_visited = datetime.now()
+    
+    # 保存元数据
+    metadata_storage.save_bookmarks(metadata_manager.to_dict_list())
+    
+    return jsonify({
+        'message': 'Visit recorded successfully',
+        'visit_count': metadata.visit_count,
+        'last_visited': metadata.last_visited.isoformat() if metadata.last_visited else None
+    }), 200
+
+
+# ==================== 标签管理 API ====================
+
+@app.route(f'{API_PREFIX}/tags', methods=['GET'])
+def get_tags():
+    """获取标签列表
+    
+    Query Parameters:
+        - page: 页码（默认 1）
+        - limit: 每页数量（默认 20，最大 100）
+        - parent_id: 父标签 ID（可选）
+        - search: 搜索关键词（可选）
+        - sort_by: 排序方式（usage|name|created，默认 usage）
+        - include_system: 是否包含系统标签（默认 true）
+    """
+    try:
+        # 解析参数
+        page = request.args.get('page', 1, type=int)
+        limit = min(request.args.get('limit', 20, type=int), 100)
+        parent_id = request.args.get('parent_id') or None
+        search = request.args.get('search', '').strip()
+        sort_by = request.args.get('sort_by', 'usage')
+        include_system = request.args.get('include_system', 'true').lower() == 'true'
+        
+        # 获取标签
+        if search:
+            tags = tag_manager.search_tags(search, limit=limit)
+        else:
+            tags = tag_manager.get_all_tags(parent_id=parent_id, include_system=include_system)
+        
+        # 排序
+        if sort_by == 'usage':
+            tags.sort(key=lambda t: t.usage_count, reverse=True)
+        elif sort_by == 'name':
+            tags.sort(key=lambda t: t.name)
+        elif sort_by == 'created':
+            tags.sort(key=lambda t: t.created_at, reverse=True)
+        
+        # 分页
+        total = len(tags)
+        start = (page - 1) * limit
+        end = start + limit
+        paginated_tags = tags[start:end]
+        
+        return jsonify({
+            'tags': [tag.to_dict() for tag in paginated_tags],
+            'pagination': {
+                'page': page,
+                'limit': limit,
+                'total': total,
+                'pages': (total + limit - 1) // limit
+            }
+        }), 200
+    
+    except Exception as e:
+        logger.error(f'[API /tags] 获取标签列表失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route(f'{API_PREFIX}/tags', methods=['POST'])
+def create_tag():
+    """创建新标签
+    
+    Request Body:
+        - name: 标签名称（必需）
+        - color: 标签颜色（可选）
+        - description: 标签描述（可选）
+        - parent_id: 父标签 ID（可选）
+    """
+    try:
+        data = request.get_json()
+        if not data or 'name' not in data:
+            return jsonify({'error': '标签名称是必需的'}), 400
+        
+        tag = tag_manager.create_tag(
+            name=data['name'],
+            color=data.get('color'),
+            description=data.get('description'),
+            parent_id=data.get('parent_id'),
+            is_system=False
+        )
+        
+        logger.info(f"[API /tags] 创建标签成功: {tag.name}")
+        return jsonify({
+            'message': '标签创建成功',
+            'tag': tag.to_dict()
+        }), 201
+    
+    except TagExistsError as e:
+        return jsonify({'error': str(e)}), 409
+    except Exception as e:
+        logger.error(f'[API /tags] 创建标签失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route(f'{API_PREFIX}/tags/<tag_id>', methods=['GET'])
+def get_tag(tag_id):
+    """获取标签详情"""
+    try:
+        tag = tag_manager.get_tag(tag_id)
+        if not tag:
+            return jsonify({'error': '标签不存在'}), 404
+        
+        # 获取使用该标签的书签数量
+        bookmarks_with_tag = [
+            b for b in manager.get_bookmarks() 
+            if tag.name in [t.lower() for t in b.tags]
+        ]
+        
+        response = tag.to_dict()
+        response['bookmark_count'] = len(bookmarks_with_tag)
+        
+        # 获取相关标签
+        related = tag_manager.get_related_tags(tag_id)
+        response['related_tags'] = related
+        
+        return jsonify(response), 200
+    
+    except Exception as e:
+        logger.error(f'[API /tags/{tag_id}] 获取标签详情失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route(f'{API_PREFIX}/tags/<tag_id>', methods=['PUT'])
+def update_tag(tag_id):
+    """更新标签"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': '请求体不能为空'}), 400
+        
+        tag = tag_manager.update_tag(tag_id, **data)
+        
+        logger.info(f"[API /tags/{tag_id}] 更新标签成功")
+        return jsonify({
+            'message': '标签更新成功',
+            'tag': tag.to_dict()
+        }), 200
+    
+    except TagNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except TagExistsError as e:
+        return jsonify({'error': str(e)}), 409
+    except Exception as e:
+        logger.error(f'[API /tags/{tag_id}] 更新标签失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route(f'{API_PREFIX}/tags/<tag_id>', methods=['DELETE'])
+def delete_tag(tag_id):
+    """删除标签"""
+    try:
+        migrate_to = request.args.get('migrate_to')
+        
+        tag_manager.delete_tag(tag_id, migrate_to=migrate_to)
+        
+        logger.info(f"[API /tags/{tag_id}] 删除标签成功")
+        return jsonify({'message': '标签删除成功'}), 200
+    
+    except TagNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f'[API /tags/{tag_id}] 删除标签失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route(f'{API_PREFIX}/tags/<tag_id>/merge', methods=['POST'])
+def merge_tags(tag_id):
+    """合并标签"""
+    try:
+        data = request.get_json()
+        if not data or 'target_tag_id' not in data:
+            return jsonify({'error': 'target_tag_id 是必需的'}), 400
+        
+        target_tag = tag_manager.merge_tags(tag_id, data['target_tag_id'])
+        
+        # 更新所有书签的标签引用
+        source_tag = tag_manager.get_tag(tag_id)
+        if source_tag:
+            with bookmarks_lock:
+                for bookmark in manager.get_bookmarks():
+                    if source_tag.name in bookmark.tags:
+                        bookmark.tags = [
+                            target_tag.name if t.lower() == source_tag.name else t
+                            for t in bookmark.tags
+                        ]
+                storage.save_bookmarks(manager.get_bookmarks())
+        
+        logger.info(f"[API /tags/{tag_id}/merge] 合并标签成功")
+        return jsonify({
+            'message': '标签合并成功',
+            'tag': target_tag.to_dict()
+        }), 200
+    
+    except TagNotFoundError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        logger.error(f'[API /tags/{tag_id}/merge] 合并标签失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route(f'{API_PREFIX}/tags/suggestions', methods=['GET'])
+def get_tag_suggestions():
+    """获取标签建议（自动补全）"""
+    try:
+        query = request.args.get('q', '').strip()
+        limit = min(request.args.get('limit', 10, type=int), 20)
+        
+        if not query:
+            return jsonify({'suggestions': []}), 200
+        
+        tags = tag_manager.search_tags(query, limit=limit)
+        
+        return jsonify({
+            'suggestions': [
+                {
+                    'id': tag.id,
+                    'name': tag.name,
+                    'color': tag.color,
+                    'usage_count': tag.usage_count
+                }
+                for tag in tags
+            ]
+        }), 200
+    
+    except Exception as e:
+        logger.error(f'[API /tags/suggestions] 获取标签建议失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route(f'{API_PREFIX}/tags/stats', methods=['GET'])
+def get_tag_stats():
+    """获取标签统计"""
+    try:
+        stats = tag_manager.get_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        logger.error(f'[API /tags/stats] 获取标签统计失败: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ==================== 应用退出处理 ====================
+
+def _save_on_exit():
+    """应用退出时保存数据"""
+    try:
+        with bookmarks_lock:
+            storage.save_bookmarks(manager.get_bookmarks())
+            folder_storage.save_bookmarks(folder_manager.folders)
+            metadata_storage.save_bookmarks(metadata_manager.to_dict_list())
+            logger.info(f"应用退出，已保存 {len(manager.get_bookmarks())} 个书签，{len(folder_manager.folders)} 个文件夹，{len(metadata_manager.metadata)} 个元数据")
+    except Exception as e:
+        logger.error(f"退出保存失败: {e}")
 
 
 if __name__ == '__main__':

@@ -69,3 +69,37 @@ class BookmarkManager:
             list: 包含该标签的 Bookmark 对象列表
         """
         return [b for b in self.bookmarks if tag in b.tags]
+        
+    def get_bookmark_by_url(self, url):
+        """根据 URL 获取单个书签
+        
+        Args:
+            url: 书签 URL
+            
+        Returns:
+            Bookmark or None: 找到的书签对象，未找到返回 None
+        """
+        for bookmark in self.bookmarks:
+            if bookmark.url == url:
+                return bookmark
+        return None
+        
+    def update_bookmark(self, url, **kwargs):
+        """更新书签
+        
+        Args:
+            url: 要更新的书签 URL
+            **kwargs: 要更新的字段 (title, tags, category)
+            
+        Returns:
+            Bookmark or None: 更新后的书签，未找到返回 None
+        """
+        bookmark = self.get_bookmark_by_url(url)
+        if bookmark:
+            if 'title' in kwargs:
+                bookmark.title = kwargs['title']
+            if 'tags' in kwargs:
+                bookmark.tags = kwargs['tags']
+            if 'category' in kwargs:
+                bookmark.category = kwargs['category']
+        return bookmark

@@ -102,6 +102,47 @@ class Storage:
         except Exception:
             # 清理失败不影响主流程
             pass
+    
+    def load_raw(self):
+        """加载原始文件内容
+        
+        Returns:
+            str: 文件内容字符串，文件不存在返回 None
+        """
+        if not os.path.exists(self.file_path):
+            return None
+        
+        try:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception:
+            return None
+    
+    def save_raw(self, content: str) -> None:
+        """保存原始内容到文件
+        
+        Args:
+            content: 要保存的内容字符串
+        """
+        with Storage._file_lock:
+            # 如果原文件存在，先创建备份
+            if os.path.exists(self.file_path):
+                self._create_backup()
+                self._cleanup_old_backups()
+            
+            # 使用临时文件 + 重命名的方式实现原子写入
+            temp_file = self.file_path + '.tmp'
+            try:
+                with open(temp_file, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                
+                # 原子重命名
+                os.replace(temp_file, self.file_path)
+            except Exception:
+                # 如果失败，清理临时文件
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                raise
             
     def load_bookmarks(self):
         """从文件加载书签
