@@ -19,25 +19,101 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # Virtual environments
 venv/
-venv_new/
-ENV/
+.venv/
 env/
-.venv
+ENV/
+env.bak/
+venv.bak/
 
-# IDE
-.idea/
+# Logs
+logs/
+*.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing & Coverage
+htmlcov/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.pytest_cache
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+tests/.pytest_cache/
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+.env.*.local
+
+# IDE / Editor
 .vscode/
+.idea/
 *.swp
 *.swo
 *~
 .DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
 
-# Project specific
-uploads/*.html
-uploads/*.json
-*.log
-bookmarks_backup.json
-temp_*.json
+# Backups
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+bookmarks.json.*.backup
+tags.json.*.backup
+
+# Uploads (用户上传文件，通常不纳入版本控制)
+uploads/
+!uploads/.gitkeep
+
+# AI 工具数据
+.kimi/
+.reasonix/
+.claude/
+.codegraph/
+.playwright-mcp/
+
+# 临时文件
+*.tmp
+*.temp
+*.swp
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+*.pid
+
+# Jupyter
+.ipynb_checkpoints
+
+# 本地开发脚本
+local_*.py
+test_*.py
+!tests/
+
+# 工作区级文件（不要推）
+/.start.sh.bak
+/start.sh.bak
